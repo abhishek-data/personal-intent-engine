@@ -1,6 +1,8 @@
+pub mod stream;
 #[cfg(feature = "whisper")]
 pub mod whisper;
 
+pub use stream::{StreamCmd, StreamRouter};
 #[cfg(feature = "whisper")]
 pub use whisper::WhisperEngine;
 

@@ -61,7 +61,13 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    let input = resolve_input(&args)?;
+    let input = if args.voice {
+        // Voice transcribes during/after capture (streaming when the model
+        // supports it), so it enters the pipeline as text.
+        Input::Text(voice_session(&args)?)
+    } else {
+        resolve_input(&args)?
+    };
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
@@ -122,14 +128,10 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-/// Resolve the input source: WAV file, microphone, CLI text, or stdin.
+/// Resolve a non-voice input source: WAV file, CLI text, or stdin.
 fn resolve_input(args: &Args) -> anyhow::Result<Input> {
     if let Some(path) = &args.audio_file {
         return Ok(Input::Audio(load_audio_file(path)?));
-    }
-
-    if args.voice {
-        return Ok(Input::Audio(record_from_mic(args)?));
     }
 
     let text = if args.input.is_empty() {
@@ -147,7 +149,7 @@ fn resolve_input(args: &Args) -> anyhow::Result<Input> {
 }
 
 #[cfg(feature = "whisper")]
-fn build_stt_engine(args: &Args) -> anyhow::Result<Box<dyn pie_engine::stt::SttEngine>> {
+fn build_whisper_engine(args: &Args) -> anyhow::Result<pie_engine::stt::WhisperEngine> {
     let model_path = args
         .whisper_model
         .clone()
@@ -159,8 +161,12 @@ fn build_stt_engine(args: &Args) -> anyhow::Result<Box<dyn pie_engine::stt::SttE
                  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
             )
         })?;
-    let engine = pie_engine::stt::WhisperEngine::load(&model_path, &args.language)?;
-    Ok(Box::new(engine))
+    pie_engine::stt::WhisperEngine::load(&model_path, &args.language)
+}
+
+#[cfg(feature = "whisper")]
+fn build_stt_engine(args: &Args) -> anyhow::Result<Box<dyn pie_engine::stt::SttEngine>> {
+    Ok(Box::new(build_whisper_engine(args)?))
 }
 
 #[cfg(feature = "whisper")]
@@ -168,24 +174,83 @@ fn load_audio_file(path: &std::path::Path) -> anyhow::Result<Vec<f32>> {
     pie_engine::stt::load_wav_as_16k_mono(path)
 }
 
+/// Record from the microphone and return the transcript. Streams the decode
+/// live (partial text as you speak) when the model supports it; otherwise
+/// transcribes the captured audio in one batch after Enter.
 #[cfg(feature = "whisper")]
-fn record_from_mic(args: &Args) -> anyhow::Result<Vec<f32>> {
+fn voice_session(args: &Args) -> anyhow::Result<String> {
     use pie_engine::audio::VadPolicy;
+    use pie_engine::stt::{StreamRouter, SttEngine};
+    use std::sync::Arc;
 
-    let (mut recorder, vad_active) = build_recorder(args)?;
-    recorder.open(None)?;
-    recorder.start(if vad_active {
-        VadPolicy::Offline
+    let engine = build_whisper_engine(args)?;
+    let use_streaming = engine.supports_streaming();
+    let router = Arc::new(StreamRouter::new());
+
+    let (recorder, vad_active) = build_recorder(args)?;
+    let mut recorder = if use_streaming {
+        let feed_router = Arc::clone(&router);
+        recorder.with_audio_callback(move |frame| feed_router.feed(frame))
     } else {
-        VadPolicy::Disabled
+        recorder
+    };
+
+    let policy = match (vad_active, use_streaming) {
+        (false, _) => VadPolicy::Disabled,
+        (true, true) => VadPolicy::Streaming,
+        (true, false) => VadPolicy::Offline,
+    };
+
+    let transcript = std::thread::scope(|scope| -> anyhow::Result<String> {
+        let worker = use_streaming.then(|| {
+            let rx = router.open();
+            let engine = &engine;
+            scope.spawn(move || {
+                engine.run_stream(rx, |committed, tentative| {
+                    eprint!("\r\x1b[2K[live] {committed}{tentative}");
+                })
+            })
+        });
+
+        recorder.open(None)?;
+        recorder.start(policy)?;
+        eprintln!("Recording... press Enter to stop.");
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        let samples = recorder.stop()?;
+        recorder.close()?;
+        eprintln!(
+            "\nCaptured {:.1}s of audio.",
+            samples.len() as f32 / 16000.0
+        );
+
+        // All frames were fed on the recorder's consumer thread before stop()
+        // returned, so FIFO ordering puts them ahead of this Finalize.
+        let streamed = if let Some(worker) = worker {
+            let text = router.finalize()?;
+            if let Err(e) = worker.join().expect("stream worker panicked") {
+                log::warn!("Stream worker error: {e}");
+            }
+            text
+        } else {
+            None
+        };
+
+        match streamed.filter(|t| !t.trim().is_empty()) {
+            Some(text) => Ok(text.trim().to_string()),
+            None => {
+                if use_streaming {
+                    eprintln!("Stream produced no text; falling back to batch transcription.");
+                }
+                Ok(engine.transcribe(&samples)?.trim().to_string())
+            }
+        }
     })?;
-    eprintln!("Recording... press Enter to stop.");
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line)?;
-    let samples = recorder.stop()?;
-    recorder.close()?;
-    eprintln!("Captured {:.1}s of audio.", samples.len() as f32 / 16000.0);
-    Ok(samples)
+
+    if transcript.is_empty() {
+        anyhow::bail!("Transcription produced no text (silence or unintelligible audio)");
+    }
+    Ok(transcript)
 }
 
 /// Build the recorder with Silero VAD when available: an explicit
@@ -254,6 +319,6 @@ fn load_audio_file(_path: &std::path::Path) -> anyhow::Result<Vec<f32>> {
 }
 
 #[cfg(not(feature = "whisper"))]
-fn record_from_mic(_args: &Args) -> anyhow::Result<Vec<f32>> {
+fn voice_session(_args: &Args) -> anyhow::Result<String> {
     anyhow::bail!("--voice requires the 'whisper' feature: cargo run --features whisper")
 }

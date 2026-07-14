@@ -1,8 +1,9 @@
 use std::path::Path;
-use std::sync::{Mutex, Once};
+use std::sync::{mpsc, Mutex, Once};
 
-use transcribe_cpp::{Backend, Model, ModelOptions, RunOptions, Session, Task};
+use transcribe_cpp::{Backend, Model, ModelOptions, RunOptions, Session, StreamOptions, Task};
 
+use super::stream::StreamCmd;
 use super::SttEngine;
 
 static BACKEND_INIT: Once = Once::new();
@@ -67,24 +68,119 @@ impl WhisperEngine {
             language: language.to_string(),
         })
     }
-}
 
-impl SttEngine for WhisperEngine {
-    fn transcribe(&self, samples: &[f32]) -> anyhow::Result<String> {
-        // Only pass a language the loaded model actually advertises; otherwise
-        // auto-detect rather than failing with UNSUPPORTED_LANGUAGE.
-        // Language-agnostic models report an empty list, so they stay on auto.
+    /// Whether the loaded model supports incremental streaming decode.
+    pub fn supports_streaming(&self) -> bool {
+        self.session
+            .lock()
+            .expect("whisper session poisoned")
+            .model()
+            .capabilities()
+            .supports_streaming
+    }
+
+    /// Run a streaming transcription worker: drains `rx`, feeding frames to
+    /// the incremental decoder and calling `on_partial(committed, tentative)`
+    /// whenever the text changes.
+    ///
+    /// Blocks until `Finalize` (returns `Some(final_text)`, also sent on the
+    /// finalize reply channel) or `Cancel`. Returns `Ok(None)` when the model
+    /// doesn't support streaming or the stream failed to begin — the finalize
+    /// handshake still completes so the caller can fall back to batch
+    /// transcription.
+    pub fn run_stream(
+        &self,
+        rx: mpsc::Receiver<StreamCmd>,
+        mut on_partial: impl FnMut(&str, &str),
+    ) -> anyhow::Result<Option<String>> {
+        let mut session = self.session.lock().expect("whisper session poisoned");
+
+        if !session.model().capabilities().supports_streaming {
+            log::info!("Model does not support streaming; deferring to batch transcription");
+            drain_until_finalize(rx);
+            return Ok(None);
+        }
+
+        let run_options = self.run_options();
+        let mut stream = match session.stream(&run_options, &StreamOptions::default()) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("Failed to begin stream: {e}");
+                drain_until_finalize(rx);
+                return Ok(None);
+            }
+        };
+
+        while let Ok(cmd) = rx.recv() {
+            match cmd {
+                StreamCmd::Feed(pcm) => match stream.feed(&pcm) {
+                    Ok(update) => {
+                        if update.committed_changed || update.tentative_changed {
+                            let text = stream.text();
+                            on_partial(&text.committed, &text.tentative);
+                        }
+                    }
+                    Err(e) => log::warn!("Stream feed failed: {e}"),
+                },
+                StreamCmd::Finalize(reply) => {
+                    // After finalize the committed prefix holds the full text;
+                    // display() = committed + tentative is the safe read.
+                    let result = match stream.finalize() {
+                        Ok(_) => Some(stream.text().display()),
+                        Err(e) => {
+                            log::error!("Stream finalize failed: {e}; caller should batch");
+                            None
+                        }
+                    };
+                    let _ = reply.send(result.clone());
+                    return Ok(result);
+                }
+                StreamCmd::Cancel => {
+                    stream.reset();
+                    return Ok(None);
+                }
+            }
+        }
+
+        // Channel dropped without a finalize/cancel handshake.
+        Ok(None)
+    }
+
+    /// Build run options with the language passed only when the loaded model
+    /// advertises it; otherwise auto-detect rather than failing with
+    /// UNSUPPORTED_LANGUAGE. Language-agnostic models report an empty list,
+    /// so they always stay on auto.
+    fn run_options(&self) -> RunOptions {
         let language = match self.language.as_str() {
             "auto" => None,
             other => Some(other.to_string()).filter(|l| self.model_languages.contains(l)),
         };
-
-        let run_options = RunOptions {
+        RunOptions {
             task: Task::Transcribe,
             language,
             ..Default::default()
-        };
+        }
+    }
+}
 
+/// Consume commands until the finalize/cancel handshake so the caller's
+/// `StreamRouter::finalize` never hangs when no stream could run.
+fn drain_until_finalize(rx: mpsc::Receiver<StreamCmd>) {
+    while let Ok(cmd) = rx.recv() {
+        match cmd {
+            StreamCmd::Feed(_) => {}
+            StreamCmd::Finalize(reply) => {
+                let _ = reply.send(None);
+                break;
+            }
+            StreamCmd::Cancel => break,
+        }
+    }
+}
+
+impl SttEngine for WhisperEngine {
+    fn transcribe(&self, samples: &[f32]) -> anyhow::Result<String> {
+        let run_options = self.run_options();
         let mut session = self.session.lock().expect("whisper session poisoned");
         session
             .run(samples, &run_options)
