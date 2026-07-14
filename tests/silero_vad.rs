@@ -1,0 +1,110 @@
+//! Silero VAD integration test: a real ONNX model must classify synthesized
+//! speech as speech and digital silence as noise, through the SmoothedVad
+//! wrapper exactly as the recorder uses it.
+//!
+//! Requires the `vad` + `whisper` features (whisper for the WAV loader),
+//! macOS (`say`/`afconvert`), and the Silero model in the cache. Skips
+//! cleanly when those are missing.
+//!
+//! Run with: cargo test --features whisper,vad --test silero_vad
+
+#![cfg(all(feature = "vad", feature = "whisper", target_os = "macos"))]
+
+use std::path::PathBuf;
+use std::process::Command;
+
+use pie_engine::audio::{
+    SileroVad, SmoothedVad, VadFrame, VoiceActivityDetector, FRAME_SAMPLES,
+    SILERO_DEFAULT_THRESHOLD, VAD_OFFLINE_HANGOVER_FRAMES, VAD_ONSET_FRAMES, VAD_PREFILL_FRAMES,
+};
+
+fn model_path() -> Option<PathBuf> {
+    let path = std::env::var_os("PIE_SILERO_MODEL")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|home| PathBuf::from(home).join(".cache/pie/models/silero_vad_v4.onnx"))
+        })?;
+    path.exists().then_some(path)
+}
+
+fn smoothed_silero(model: &PathBuf) -> SmoothedVad {
+    let silero = SileroVad::new(model, SILERO_DEFAULT_THRESHOLD).expect("silero load failed");
+    SmoothedVad::new(
+        Box::new(silero),
+        VAD_PREFILL_FRAMES,
+        VAD_OFFLINE_HANGOVER_FRAMES,
+        VAD_ONSET_FRAMES,
+    )
+}
+
+fn count_speech_frames(vad: &mut SmoothedVad, samples: &[f32]) -> (usize, usize) {
+    let mut speech = 0;
+    let mut total = 0;
+    for frame in samples.chunks_exact(FRAME_SAMPLES) {
+        total += 1;
+        if matches!(vad.push_frame(frame).unwrap(), VadFrame::Speech(_)) {
+            speech += 1;
+        }
+    }
+    (speech, total)
+}
+
+#[test]
+fn detects_speech_and_rejects_silence() {
+    let Some(model) = model_path() else {
+        eprintln!("skipping: no silero model (set PIE_SILERO_MODEL)");
+        return;
+    };
+
+    // --- Synthesized speech must be detected ---
+    let dir = std::env::temp_dir().join("pie-vad-test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let aiff = dir.join("speech.aiff");
+    let wav = dir.join("speech.wav");
+
+    let Ok(status) = Command::new("say")
+        .arg("-o")
+        .arg(&aiff)
+        .arg("testing voice activity detection with real speech")
+        .status()
+    else {
+        eprintln!("skipping: `say` unavailable");
+        return;
+    };
+    assert!(status.success(), "say failed");
+    let status = Command::new("afconvert")
+        .args(["-f", "WAVE", "-d", "LEI16@16000", "-c", "1"])
+        .arg(&aiff)
+        .arg(&wav)
+        .status()
+        .expect("afconvert unavailable");
+    assert!(status.success(), "afconvert failed");
+
+    let speech_samples = pie_engine::stt::load_wav_as_16k_mono(&wav).expect("wav load failed");
+    let mut vad = smoothed_silero(&model);
+    let (speech, total) = count_speech_frames(&mut vad, &speech_samples);
+    assert!(
+        speech * 2 > total,
+        "expected majority speech frames in spoken audio, got {speech}/{total}"
+    );
+
+    // --- Digital silence must be rejected (fresh detector state) ---
+    let mut vad = smoothed_silero(&model);
+    let silence = vec![0.0f32; FRAME_SAMPLES * 100]; // 3 seconds
+    let (speech, total) = count_speech_frames(&mut vad, &silence);
+    assert_eq!(
+        speech, 0,
+        "silence must produce zero speech frames, got {speech}/{total}"
+    );
+
+    // --- reset() clears LSTM state between sessions ---
+    let mut vad = smoothed_silero(&model);
+    let _ = count_speech_frames(&mut vad, &speech_samples);
+    vad.reset();
+    let (speech, _) = count_speech_frames(&mut vad, &silence);
+    assert_eq!(
+        speech, 0,
+        "silence after reset must produce zero speech frames"
+    );
+}

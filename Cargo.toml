@@ -52,7 +52,7 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # ONNX runtime for Silero VAD (optional, feature-gated)
-# vad-rs = { git = "https://github.com/cjpais/vad-rs", optional = true }
+vad-rs = { git = "https://github.com/cjpais/vad-rs", default-features = false, optional = true }
 
 # WAV file reading for the CLI's --audio-file input (whisper feature only)
 hound = { version = "3", optional = true }
@@ -69,7 +69,7 @@ transcribe-cpp = { version = "0.1.3", default-features = false, optional = true 
 default = ["cli"]
 cli = ["dep:clap"]
 whisper = ["dep:transcribe-cpp", "dep:hound"]
-# vad = ["vad-rs"]
+vad = ["dep:vad-rs"]
 
 [profile.release]
 opt-level = 3

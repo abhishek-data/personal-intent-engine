@@ -36,6 +36,11 @@ struct Args {
     #[arg(long)]
     whisper_model: Option<std::path::PathBuf>,
 
+    /// Path to a Silero VAD ONNX model for --voice (or set PIE_SILERO_MODEL;
+    /// defaults to ~/.cache/pie/models/silero_vad_v4.onnx when present)
+    #[arg(long)]
+    silero_model: Option<std::path::PathBuf>,
+
     /// Spoken language code ("en", "de", ...) or "auto"
     #[arg(long, default_value = "auto")]
     language: String,
@@ -124,7 +129,7 @@ fn resolve_input(args: &Args) -> anyhow::Result<Input> {
     }
 
     if args.voice {
-        return Ok(Input::Audio(record_from_mic()?));
+        return Ok(Input::Audio(record_from_mic(args)?));
     }
 
     let text = if args.input.is_empty() {
@@ -164,12 +169,16 @@ fn load_audio_file(path: &std::path::Path) -> anyhow::Result<Vec<f32>> {
 }
 
 #[cfg(feature = "whisper")]
-fn record_from_mic() -> anyhow::Result<Vec<f32>> {
-    use pie_engine::audio::{AudioRecorder, VadPolicy};
+fn record_from_mic(args: &Args) -> anyhow::Result<Vec<f32>> {
+    use pie_engine::audio::VadPolicy;
 
-    let mut recorder = AudioRecorder::new()?;
+    let (mut recorder, vad_active) = build_recorder(args)?;
     recorder.open(None)?;
-    recorder.start(VadPolicy::Disabled)?;
+    recorder.start(if vad_active {
+        VadPolicy::Offline
+    } else {
+        VadPolicy::Disabled
+    })?;
     eprintln!("Recording... press Enter to stop.");
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;
@@ -177,6 +186,61 @@ fn record_from_mic() -> anyhow::Result<Vec<f32>> {
     recorder.close()?;
     eprintln!("Captured {:.1}s of audio.", samples.len() as f32 / 16000.0);
     Ok(samples)
+}
+
+/// Build the recorder with Silero VAD when available: an explicit
+/// --silero-model / PIE_SILERO_MODEL must load (errors propagate); the
+/// default cache path is used opportunistically.
+#[cfg(all(feature = "whisper", feature = "vad"))]
+fn build_recorder(args: &Args) -> anyhow::Result<(pie_engine::audio::AudioRecorder, bool)> {
+    use pie_engine::audio::{
+        AudioRecorder, SileroVad, SmoothedVad, SILERO_DEFAULT_THRESHOLD,
+        VAD_OFFLINE_HANGOVER_FRAMES, VAD_ONSET_FRAMES, VAD_PREFILL_FRAMES,
+        VAD_STREAMING_HANGOVER_FRAMES,
+    };
+
+    let model_path = args
+        .silero_model
+        .clone()
+        .or_else(|| std::env::var_os("PIE_SILERO_MODEL").map(Into::into))
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|home| {
+                    std::path::PathBuf::from(home).join(".cache/pie/models/silero_vad_v4.onnx")
+                })
+                .filter(|p| p.exists())
+        });
+
+    match model_path {
+        Some(path) => {
+            let silero = SileroVad::new(&path, SILERO_DEFAULT_THRESHOLD)?;
+            let smoothed = SmoothedVad::new(
+                Box::new(silero),
+                VAD_PREFILL_FRAMES,
+                VAD_OFFLINE_HANGOVER_FRAMES,
+                VAD_ONSET_FRAMES,
+            );
+            let recorder = AudioRecorder::new()?.with_vad(
+                Box::new(smoothed),
+                VAD_OFFLINE_HANGOVER_FRAMES,
+                VAD_STREAMING_HANGOVER_FRAMES,
+            );
+            Ok((recorder, true))
+        }
+        None => {
+            eprintln!(
+                "No Silero VAD model found; recording without VAD. \
+                 Download one:\n  curl -L -o ~/.cache/pie/models/silero_vad_v4.onnx \
+                 https://blob.handy.computer/silero_vad_v4.onnx"
+            );
+            Ok((pie_engine::audio::AudioRecorder::new()?, false))
+        }
+    }
+}
+
+#[cfg(all(feature = "whisper", not(feature = "vad")))]
+fn build_recorder(_args: &Args) -> anyhow::Result<(pie_engine::audio::AudioRecorder, bool)> {
+    Ok((pie_engine::audio::AudioRecorder::new()?, false))
 }
 
 #[cfg(not(feature = "whisper"))]
@@ -190,6 +254,6 @@ fn load_audio_file(_path: &std::path::Path) -> anyhow::Result<Vec<f32>> {
 }
 
 #[cfg(not(feature = "whisper"))]
-fn record_from_mic() -> anyhow::Result<Vec<f32>> {
+fn record_from_mic(_args: &Args) -> anyhow::Result<Vec<f32>> {
     anyhow::bail!("--voice requires the 'whisper' feature: cargo run --features whisper")
 }
