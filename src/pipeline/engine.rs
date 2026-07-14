@@ -33,7 +33,7 @@ impl PieEngine {
     /// Initialize the PIE engine
     pub async fn new() -> anyhow::Result<Self> {
         let memory = MemoryStore::load();
-        let extractor = IntentExtractor::new(Some(memory.clone()));
+        let extractor = IntentExtractor::new();
         let llm = LlmRouter::new();
 
         Ok(Self {

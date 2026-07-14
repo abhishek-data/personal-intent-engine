@@ -1,20 +1,21 @@
 use super::classifier;
 use super::schema::*;
-use crate::memory::store::MemoryStore;
 
 /// Extracts structured intent from user text input.
 ///
 /// Phase 1: Rule-based extraction (no ML model required).
 /// Phase 2: Small local model for better extraction (future).
-pub struct IntentExtractor {
-    // Reserved for Phase 2 model-based extraction; unused by the rule-based path.
-    #[allow(dead_code)]
-    memory: Option<MemoryStore>,
+pub struct IntentExtractor;
+
+impl Default for IntentExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IntentExtractor {
-    pub fn new(memory: Option<MemoryStore>) -> Self {
-        Self { memory }
+    pub fn new() -> Self {
+        Self
     }
 
     /// Extract intent from text input
@@ -225,5 +226,87 @@ impl IntentExtractor {
         }
 
         cleaned
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn extract(text: &str) -> Intent {
+        IntentExtractor::new().extract(text)
+    }
+
+    #[test]
+    fn empty_input_yields_default_intent() {
+        let intent = extract("   ");
+        assert!(intent.objective.is_empty());
+        assert_eq!(intent.conversation_type, ConversationType::Other);
+    }
+
+    #[test]
+    fn short_direct_input_is_high_confidence() {
+        let intent = extract("deploy the app");
+        assert_eq!(intent.confidence, IntentConfidence::High);
+    }
+
+    #[test]
+    fn uncertainty_markers_lower_confidence() {
+        let intent =
+            extract("maybe we could try adding a cache here, not sure if that helps at all though because the data changes often");
+        assert_eq!(intent.confidence, IntentConfidence::Medium);
+    }
+
+    #[test]
+    fn self_corrections_are_low_confidence() {
+        let intent = extract(
+            "add a retry to the fetch call, wait actually I mean the upload call, sorry about the confusion there",
+        );
+        assert_eq!(intent.confidence, IntentConfidence::Low);
+    }
+
+    #[test]
+    fn extracts_questions() {
+        let intent = extract("The build is slow. How can I speed it up? What about caching?");
+        assert!(
+            !intent.questions.is_empty(),
+            "expected questions, got {:?}",
+            intent.questions
+        );
+    }
+
+    #[test]
+    fn extracts_constraints() {
+        let intent = extract("Build the API. It must use Postgres, without any ORM.");
+        assert!(
+            !intent.constraints.is_empty(),
+            "expected constraints, got {:?}",
+            intent.constraints
+        );
+    }
+
+    #[test]
+    fn extracts_tech_topics() {
+        let intent = extract("Set up Docker with Postgres for the Rust service");
+        assert!(intent.topics.contains(&"docker".to_string()));
+        assert!(intent.topics.contains(&"postgres".to_string()));
+        assert!(intent.topics.contains(&"rust".to_string()));
+    }
+
+    #[test]
+    fn objective_strips_filler_phrases() {
+        let intent = extract("can you help me deploy the service");
+        assert!(
+            !intent.objective.contains("can you"),
+            "filler not stripped: {:?}",
+            intent.objective
+        );
+        assert!(intent.objective.contains("deploy the service"));
+    }
+
+    #[test]
+    fn raw_input_is_preserved() {
+        let intent = extract("explain lifetimes");
+        assert_eq!(intent.raw_input, "explain lifetimes");
     }
 }
