@@ -75,3 +75,30 @@ fn estimate_tokens(sections: &[PromptSection]) -> usize {
     let total_chars: usize = sections.iter().map(|s| s.content.len()).sum();
     total_chars / 4 // rough estimate: ~4 chars per token
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn removes_filler_words() {
+        assert_eq!(
+            remove_filler("um basically just deploy it you know"),
+            "just deploy it"
+        );
+    }
+
+    #[test]
+    fn compact_output_is_terse() {
+        let intent = Intent {
+            objective: "deploy the app".to_string(),
+            raw_input: "deploy the app".to_string(),
+            ..Intent::default()
+        };
+        let out = optimize(&intent, &MemoryStore::default());
+        assert_eq!(out.mode, OptimizationMode::Compact);
+        assert!(out.text.starts_with("Task: deploy the app"));
+        // No profile role and no constraints -> single section
+        assert_eq!(out.sections.len(), 1);
+    }
+}

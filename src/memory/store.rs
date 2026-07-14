@@ -99,3 +99,55 @@ impl MemoryStore {
             .join("memory.json")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_interaction_tracks_running_average() {
+        let mut store = MemoryStore::default();
+        store.record_interaction("one two three four", "Task"); // 4 words
+        store.record_interaction("one two", "Question"); // 2 words
+
+        assert_eq!(store.patterns.interaction_count, 2);
+        assert!(
+            (store.patterns.avg_input_length - 3.0).abs() < f32::EPSILON,
+            "expected avg 3.0, got {}",
+            store.patterns.avg_input_length
+        );
+    }
+
+    #[test]
+    fn common_types_deduplicate() {
+        let mut store = MemoryStore::default();
+        for t in ["A", "A", "B", "A"] {
+            store.record_interaction("input", t);
+        }
+        assert_eq!(store.patterns.common_types, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn common_types_cap_at_five_evicting_oldest() {
+        let mut store = MemoryStore::default();
+        for t in ["A", "B", "C", "D", "E", "F"] {
+            store.record_interaction("input", t);
+        }
+        assert_eq!(store.patterns.common_types, vec!["B", "C", "D", "E", "F"]);
+    }
+
+    #[test]
+    fn save_without_path_is_a_noop() {
+        let store = MemoryStore::default();
+        assert!(store.save().is_ok(), "no-path save must not error");
+    }
+
+    #[test]
+    fn roundtrips_through_json() {
+        let mut store = MemoryStore::default();
+        store.record_interaction("hello world", "Question");
+        let json = serde_json::to_string(&store).unwrap();
+        let loaded: MemoryStore = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.patterns.interaction_count, 1);
+    }
+}

@@ -91,3 +91,59 @@ pub fn classify(text: &str) -> ConversationType {
 
     ConversationType::Other
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_questions() {
+        assert_eq!(classify("What is Rust?"), ConversationType::Question);
+        assert_eq!(classify("how do I deploy this"), ConversationType::Question);
+        assert_eq!(classify("is this thread safe?"), ConversationType::Question);
+    }
+
+    #[test]
+    fn classifies_code_requests() {
+        assert_eq!(
+            classify("please implement a binary search"),
+            ConversationType::Code
+        );
+        assert_eq!(classify("refactor the auth module"), ConversationType::Code);
+    }
+
+    #[test]
+    fn classifies_tasks() {
+        assert_eq!(classify("create a new config file"), ConversationType::Task);
+        assert_eq!(classify("deploy the staging build"), ConversationType::Task);
+    }
+
+    #[test]
+    fn classifies_explanations() {
+        assert_eq!(
+            classify("explain the borrow checker"),
+            ConversationType::Explanation
+        );
+    }
+
+    #[test]
+    fn classifies_problems() {
+        assert_eq!(
+            classify("the login page is broken"),
+            ConversationType::Problem
+        );
+    }
+
+    #[test]
+    fn classifies_brainstorm() {
+        assert_eq!(
+            classify("let's brainstorm names for the product"),
+            ConversationType::Brainstorm
+        );
+    }
+
+    #[test]
+    fn falls_back_to_other() {
+        assert_eq!(classify("good morning"), ConversationType::Other);
+    }
+}
