@@ -1,0 +1,67 @@
+[package]
+name = "pie-engine"
+version = "0.1.0"
+edition = "2021"
+description = "PIE - Personal Intent Engine: Intelligent middleware between humans and AI models"
+license = "Apache-2.0"
+repository = "https://github.com/abhishek-data/personal-intent-engine"
+authors = ["Abhishek Kumar"]
+
+[lib]
+name = "pie_engine"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "pie-cli"
+path = "src/main.rs"
+
+[dependencies]
+# Audio capture
+cpal = "0.16"
+rubato = "0.16"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client (for LLM API calls)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# File-based storage
+dirs = "6"
+
+# UUID for memory entries
+uuid = { version = "1", features = ["v4"] }
+
+# Timestamps
+chrono = { version = "0.4", features = ["serde"] }
+
+# ONNX runtime for Silero VAD (optional, feature-gated)
+# vad-rs = { git = "https://github.com/cjpais/vad-rs", optional = true }
+
+# whisper.cpp bindings (optional, feature-gated)
+# transcribe-cpp = { version = "0.1.3", optional = true }
+
+[features]
+default = ["cli"]
+cli = ["clap"]
+# vad = ["vad-rs"]
+# whisper = ["transcribe-cpp"]
+
+[profile.release]
+opt-level = 3
+lto = true
