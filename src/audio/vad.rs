@@ -34,11 +34,11 @@ pub enum VadPolicy {
     Streaming,
 }
 
-// VAD timing constants (in 30ms frames)
+// VAD timing constants (in 30ms frames), matching Handy's current tuning.
 pub const VAD_PREFILL_FRAMES: usize = 15; // 450ms pre-speech context
-pub const VAD_OFFLINE_HANGOVER_FRAMES: usize = 30; // 900ms post-speech
-pub const VAD_STREAMING_HANGOVER_FRAMES: usize = 60; // 1.8s for streaming
-pub const VAD_ONSET_FRAMES: usize = 3; // 90ms onset detection
+pub const VAD_OFFLINE_HANGOVER_FRAMES: usize = 15; // 450ms post-speech
+pub const VAD_STREAMING_HANGOVER_FRAMES: usize = 55; // 1.65s for streaming
+pub const VAD_ONSET_FRAMES: usize = 2; // 60ms onset detection
 
 /// Smoothed VAD wrapper with onset detection, hangover tail, and prefill buffering.
 ///
@@ -144,6 +144,7 @@ impl VoiceActivityDetector for SmoothedVad {
         self.hangover_counter = 0;
         self.onset_counter = 0;
         self.in_speech = false;
+        self.temp_out.clear();
     }
 
     fn set_hangover_frames(&mut self, frames: usize) {
@@ -181,8 +182,7 @@ impl EnergyVad {
 
 impl VoiceActivityDetector for EnergyVad {
     fn push_frame<'a>(&'a mut self, frame: &'a [f32]) -> Result<VadFrame<'a>> {
-        let energy: f32 = frame.iter().map(|s| s * s).sum::<f32>() / frame.len() as f32;
-        if energy.sqrt() > self.threshold {
+        if self.is_voice(frame)? {
             Ok(VadFrame::Speech(frame))
         } else {
             Ok(VadFrame::Noise)
@@ -197,4 +197,121 @@ impl VoiceActivityDetector for EnergyVad {
     fn reset(&mut self) {}
 
     fn set_hangover_frames(&mut self, _frames: usize) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Scripted inner VAD: returns a pre-programmed voice/silence sequence.
+    struct ScriptedVad {
+        script: Vec<bool>,
+        pos: usize,
+    }
+
+    impl ScriptedVad {
+        fn new(script: Vec<bool>) -> Self {
+            Self { script, pos: 0 }
+        }
+    }
+
+    impl VoiceActivityDetector for ScriptedVad {
+        fn push_frame<'a>(&'a mut self, frame: &'a [f32]) -> Result<VadFrame<'a>> {
+            if self.is_voice(frame)? {
+                Ok(VadFrame::Speech(frame))
+            } else {
+                Ok(VadFrame::Noise)
+            }
+        }
+
+        fn is_voice(&mut self, _frame: &[f32]) -> Result<bool> {
+            let v = self.script.get(self.pos).copied().unwrap_or(false);
+            self.pos += 1;
+            Ok(v)
+        }
+
+        fn reset(&mut self) {
+            self.pos = 0;
+        }
+
+        fn set_hangover_frames(&mut self, _frames: usize) {}
+    }
+
+    const FRAME: [f32; 4] = [0.1, 0.2, 0.3, 0.4];
+
+    fn smoothed(script: Vec<bool>, prefill: usize, hangover: usize, onset: usize) -> SmoothedVad {
+        SmoothedVad::new(Box::new(ScriptedVad::new(script)), prefill, hangover, onset)
+    }
+
+    fn is_speech(vad: &mut SmoothedVad) -> bool {
+        matches!(vad.push_frame(&FRAME).unwrap(), VadFrame::Speech(_))
+    }
+
+    #[test]
+    fn onset_requires_consecutive_voice_frames() {
+        // onset=2: a single voiced frame must not trigger speech
+        let mut vad = smoothed(vec![true, false, true, true], 0, 0, 2);
+        assert!(!is_speech(&mut vad), "1st voiced frame: still onset");
+        assert!(!is_speech(&mut vad), "silence breaks the onset run");
+        assert!(!is_speech(&mut vad), "1st voiced frame again: still onset");
+        assert!(is_speech(&mut vad), "2nd consecutive voiced frame triggers");
+    }
+
+    #[test]
+    fn onset_trigger_emits_prefill_buffer() {
+        // prefill=3, onset=1: the triggering frame must carry buffered pre-roll
+        let mut vad = smoothed(vec![false, false, true], 3, 0, 1);
+        let _ = vad.push_frame(&FRAME).unwrap();
+        let _ = vad.push_frame(&FRAME).unwrap();
+        match vad.push_frame(&FRAME).unwrap() {
+            VadFrame::Speech(buf) => {
+                // 2 buffered silence frames + the current frame
+                assert_eq!(buf.len(), FRAME.len() * 3, "prefill context missing");
+            }
+            VadFrame::Noise => panic!("expected speech on onset trigger"),
+        }
+    }
+
+    #[test]
+    fn hangover_extends_speech_after_voice_ends() {
+        // onset=1, hangover=2: after voice stops, 2 more frames stay Speech
+        let mut vad = smoothed(vec![true, false, false, false], 0, 2, 1);
+        assert!(is_speech(&mut vad), "voice triggers speech");
+        assert!(is_speech(&mut vad), "hangover frame 1");
+        assert!(is_speech(&mut vad), "hangover frame 2");
+        assert!(!is_speech(&mut vad), "hangover exhausted -> noise");
+    }
+
+    #[test]
+    fn set_hangover_frames_changes_tail_length() {
+        let mut vad = smoothed(vec![true, false, false], 0, 5, 1);
+        vad.set_hangover_frames(1);
+        assert!(is_speech(&mut vad), "voice triggers speech");
+        assert!(is_speech(&mut vad), "hangover frame 1");
+        assert!(!is_speech(&mut vad), "shortened hangover exhausted");
+    }
+
+    #[test]
+    fn reset_clears_speech_state() {
+        let mut vad = smoothed(vec![true, true], 0, 10, 1);
+        assert!(is_speech(&mut vad), "voice triggers speech");
+        vad.reset();
+        // Inner ScriptedVad also resets to pos 0 (true), but in_speech and
+        // counters must be back to the silence state: with onset=1 a voiced
+        // frame re-triggers, which is correct — verify via internals instead.
+        assert!(!vad.in_speech, "reset must clear in_speech");
+        assert_eq!(vad.hangover_counter, 0, "reset must clear hangover");
+        assert_eq!(vad.onset_counter, 0, "reset must clear onset counter");
+        assert!(vad.frame_buffer.is_empty(), "reset must clear prefill");
+        assert!(vad.temp_out.is_empty(), "reset must clear temp_out");
+    }
+
+    #[test]
+    fn energy_vad_thresholds() {
+        let mut vad = EnergyVad::new(0.05);
+        let loud = [0.5f32; 480];
+        let quiet = [0.001f32; 480];
+        assert!(vad.is_voice(&loud).unwrap());
+        assert!(!vad.is_voice(&quiet).unwrap());
+    }
 }
