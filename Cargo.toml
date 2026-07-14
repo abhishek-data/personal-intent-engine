@@ -54,14 +54,22 @@ chrono = { version = "0.4", features = ["serde"] }
 # ONNX runtime for Silero VAD (optional, feature-gated)
 # vad-rs = { git = "https://github.com/cjpais/vad-rs", optional = true }
 
-# whisper.cpp bindings (optional, feature-gated)
-# transcribe-cpp = { version = "0.1.3", optional = true }
+# WAV file reading for the CLI's --audio-file input (whisper feature only)
+hound = { version = "3", optional = true }
+
+# whisper.cpp bindings per platform (optional, feature-gated). Metal on macOS,
+# plain CPU elsewhere — mirrors Handy's per-target backend selection.
+[target.'cfg(target_os = "macos")'.dependencies]
+transcribe-cpp = { version = "0.1.3", default-features = false, features = ["metal"], optional = true }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+transcribe-cpp = { version = "0.1.3", default-features = false, optional = true }
 
 [features]
 default = ["cli"]
 cli = ["dep:clap"]
+whisper = ["dep:transcribe-cpp", "dep:hound"]
 # vad = ["vad-rs"]
-# whisper = ["transcribe-cpp"]
 
 [profile.release]
 opt-level = 3

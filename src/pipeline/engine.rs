@@ -3,6 +3,7 @@ use crate::llm::LlmRouter;
 use crate::memory::store::MemoryStore;
 use crate::optimizer::OptimizationMode;
 use crate::optimizer::{adaptive, balanced, compact, enhanced};
+use crate::stt::SttEngine;
 
 /// Result of processing input through the PIE pipeline
 #[derive(Debug)]
@@ -27,6 +28,7 @@ pub struct PieEngine {
     memory: MemoryStore,
     extractor: IntentExtractor,
     llm: LlmRouter,
+    stt: Option<Box<dyn SttEngine>>,
 }
 
 impl PieEngine {
@@ -40,7 +42,36 @@ impl PieEngine {
             memory,
             extractor,
             llm,
+            stt: None,
         })
+    }
+
+    /// Attach a speech-to-text engine, enabling `process_audio`.
+    pub fn with_stt(mut self, stt: Box<dyn SttEngine>) -> Self {
+        self.stt = Some(stt);
+        self
+    }
+
+    /// Transcribe 16 kHz mono samples and run them through the full pipeline.
+    /// The transcript is available afterwards as `intent.raw_input`.
+    pub async fn process_audio(
+        &mut self,
+        samples: &[f32],
+        mode: &str,
+    ) -> anyhow::Result<PieResult> {
+        let stt = self
+            .stt
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No STT engine configured. Use with_stt()."))?;
+
+        let text = stt.transcribe(samples)?;
+        let text = text.trim();
+        log::info!("Transcribed {} samples: {text:?}", samples.len());
+        if text.is_empty() {
+            anyhow::bail!("Transcription produced no text (silence or unintelligible audio)");
+        }
+
+        self.process(text, mode).await
     }
 
     /// Process text input through the full PIE pipeline.
