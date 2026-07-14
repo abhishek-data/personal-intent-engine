@@ -18,6 +18,8 @@
     mode: "balanced",
     provider: "echo",
     llm_model: "",
+    hotkey: "CmdOrCtrl+Shift+Space",
+    paste_output: "transcript",
   });
   let showSettings = $state(false);
   let settingsSaved = $state(false);
@@ -30,6 +32,14 @@
     }
     await listen("pie://state", (event) => {
       recState = event.payload;
+    });
+    // Hotkey-driven sessions report results and errors via events.
+    await listen("pie://outcome", (event) => {
+      outcome = event.payload;
+      llmResponse = "";
+    });
+    await listen("pie://error", (event) => {
+      error = String(event.payload);
     });
   });
 
@@ -146,6 +156,19 @@
           <input bind:value={settings.llm_model} placeholder="gpt-4o-mini" />
         </label>
       </div>
+      <div class="row">
+        <label>
+          Global hotkey (toggle recording from any app)
+          <input bind:value={settings.hotkey} placeholder="CmdOrCtrl+Shift+Space" />
+        </label>
+        <label>
+          Hotkey pastes
+          <select bind:value={settings.paste_output}>
+            <option value="transcript">transcript (raw speech)</option>
+            <option value="prompt">optimized prompt</option>
+          </select>
+        </label>
+      </div>
       <button onclick={saveSettings}>
         {settingsSaved ? "Saved ✓" : "Save settings"}
       </button>
@@ -162,6 +185,7 @@
       <span class="dot"></span>
     </button>
     <p class="state-label">{stateLabel}</p>
+    <p class="hint">or press <kbd>{settings.hotkey}</kbd> in any app</p>
     {#if recState === "recording"}
       <button class="ghost" onclick={cancelRecording}>Cancel</button>
     {/if}
@@ -298,6 +322,17 @@
     margin: 0;
     color: #8a8a94;
     font-size: 0.9rem;
+  }
+  .hint {
+    margin: 0;
+    color: #55555e;
+    font-size: 0.78rem;
+  }
+  kbd {
+    background: #26262e;
+    border-radius: 4px;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.75rem;
   }
   .transcript {
     margin: 0 0 0.75rem;

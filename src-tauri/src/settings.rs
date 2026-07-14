@@ -18,6 +18,12 @@ pub struct Settings {
     pub provider: String,
     /// LLM model name (empty = provider default)
     pub llm_model: String,
+    /// Global shortcut that toggles recording from any app
+    /// (tauri-plugin-global-shortcut syntax, e.g. "CmdOrCtrl+Shift+Space")
+    pub hotkey: String,
+    /// What the hotkey flow pastes into the active app:
+    /// "transcript" (raw speech-to-text) or "prompt" (PIE-optimized prompt)
+    pub paste_output: String,
 }
 
 impl Default for Settings {
@@ -29,6 +35,8 @@ impl Default for Settings {
             mode: "balanced".to_string(),
             provider: "echo".to_string(),
             llm_model: String::new(),
+            hotkey: "CmdOrCtrl+Shift+Space".to_string(),
+            paste_output: "transcript".to_string(),
         }
     }
 }
