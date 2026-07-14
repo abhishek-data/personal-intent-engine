@@ -1,0 +1,23 @@
+[package]
+name = "pie-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "PIE desktop app (Tauri)"
+license = "Apache-2.0"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1"
+dirs = "6"
+tokio = { version = "1", features = ["sync"] }
+
+# The engine does the actual work; the app is a thin shell over it.
+# default-features = false drops the CLI-only clap dependency.
+pie-engine = { path = "..", default-features = false, features = ["whisper", "vad"] }

@@ -10,3 +10,7 @@
 .env
 node_modules/
 dist/
+
+# Tauri generated artifacts
+src-tauri/gen/
+src-tauri/target/
