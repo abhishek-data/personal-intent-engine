@@ -14,6 +14,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 [[bin]]
 name = "pie-cli"
 path = "src/main.rs"
+required-features = ["cli"]
 
 [dependencies]
 # Audio capture
@@ -39,7 +40,7 @@ anyhow = "1"
 thiserror = "2"
 
 # CLI
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive"], optional = true }
 
 # File-based storage
 dirs = "6"
@@ -58,7 +59,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 [features]
 default = ["cli"]
-cli = ["clap"]
+cli = ["dep:clap"]
 # vad = ["vad-rs"]
 # whisper = ["transcribe-cpp"]
 

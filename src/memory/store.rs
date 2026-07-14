@@ -5,7 +5,7 @@ use super::profile::UserProfile;
 
 /// JSON-based personal memory store.
 /// Stores user profile, preferences, and learned patterns.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryStore {
     /// User profile (role, tech stack, preferences)
     pub profile: UserProfile,
@@ -41,26 +41,25 @@ impl MemoryStore {
         let path = Self::default_path();
         if path.exists() {
             match std::fs::read_to_string(&path) {
-                Ok(json) => {
-                    match serde_json::from_str::<MemoryStore>(&json) {
-                        Ok(mut store) => {
-                            store.path = Some(path);
-                            return store;
-                        }
-                        Err(e) => {
-                            log::warn!("Failed to parse memory store: {e}, creating new");
-                        }
+                Ok(json) => match serde_json::from_str::<MemoryStore>(&json) {
+                    Ok(mut store) => {
+                        store.path = Some(path);
+                        return store;
                     }
-                }
+                    Err(e) => {
+                        log::warn!("Failed to parse memory store: {e}, creating new");
+                    }
+                },
                 Err(e) => {
                     log::warn!("Failed to read memory store: {e}, creating new");
                 }
             }
         }
 
-        let mut store = Self::default();
-        store.path = Some(path);
-        store
+        Self {
+            path: Some(path),
+            ..Self::default()
+        }
     }
 
     /// Save memory to file
@@ -98,16 +97,5 @@ impl MemoryStore {
             .unwrap_or_else(|| PathBuf::from("."))
             .join("pie")
             .join("memory.json")
-    }
-}
-
-impl Default for MemoryStore {
-    fn default() -> Self {
-        Self {
-            profile: UserProfile::default(),
-            patterns: CommunicationPatterns::default(),
-            vocabulary: std::collections::HashMap::new(),
-            path: None,
-        }
     }
 }

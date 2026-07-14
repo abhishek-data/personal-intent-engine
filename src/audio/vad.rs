@@ -35,10 +35,10 @@ pub enum VadPolicy {
 }
 
 // VAD timing constants (in 30ms frames)
-pub const VAD_PREFILL_FRAMES: usize = 15;        // 450ms pre-speech context
+pub const VAD_PREFILL_FRAMES: usize = 15; // 450ms pre-speech context
 pub const VAD_OFFLINE_HANGOVER_FRAMES: usize = 30; // 900ms post-speech
 pub const VAD_STREAMING_HANGOVER_FRAMES: usize = 60; // 1.8s for streaming
-pub const VAD_ONSET_FRAMES: usize = 3;            // 90ms onset detection
+pub const VAD_ONSET_FRAMES: usize = 3; // 90ms onset detection
 
 /// Smoothed VAD wrapper with onset detection, hangover tail, and prefill buffering.
 ///

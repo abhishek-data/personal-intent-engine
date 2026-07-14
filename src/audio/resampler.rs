@@ -41,7 +41,7 @@ impl FrameResampler {
 
     /// Resample interleaved samples to 16kHz mono
     pub fn resample(&mut self, samples: &[f32]) -> Vec<f32> {
-        if self.source_rate == super::WHISPER_SAMPLE_RATE && self.source_channels == 1 {
+        if self.source_rate == self.target_rate && self.source_channels == 1 {
             return samples.to_vec();
         }
 

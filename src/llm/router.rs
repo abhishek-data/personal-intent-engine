@@ -5,6 +5,12 @@ pub struct LlmRouter {
     client: Option<OpenAiClient>,
 }
 
+impl Default for LlmRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LlmRouter {
     pub fn new() -> Self {
         Self {
@@ -21,10 +27,9 @@ impl LlmRouter {
     ) -> anyhow::Result<String> {
         match provider {
             "openai" | "openrouter" => {
-                let client = self
-                    .client
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("No LLM client configured. Set OPENAI_API_KEY."))?;
+                let client = self.client.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("No LLM client configured. Set OPENAI_API_KEY.")
+                })?;
 
                 let model_name = model.unwrap_or("gpt-4o-mini");
                 client.chat(prompt, model_name).await

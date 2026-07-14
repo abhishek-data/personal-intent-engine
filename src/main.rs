@@ -1,7 +1,10 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(name = "pie", about = "Personal Intent Engine - Intelligent AI middleware")]
+#[command(
+    name = "pie",
+    about = "Personal Intent Engine - Intelligent AI middleware"
+)]
 struct Args {
     /// Text input to process
     #[arg(trailing_var_arg = true)]
@@ -16,11 +19,11 @@ struct Args {
     provider: String,
 
     /// Model name
-    #[arg(short, long)]
+    #[arg(long)]
     model: Option<String>,
 
     /// Enable voice input (requires microphone)
-    #[arg(short, long)]
+    #[arg(long)]
     voice: bool,
 
     /// Verbose output (show intent, optimized prompt, etc.)
@@ -49,7 +52,7 @@ fn main() -> anyhow::Result<()> {
     // Create PIE engine
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
-        let engine = pie_engine::PieEngine::new().await?;
+        let mut engine = pie_engine::PieEngine::new().await?;
 
         if args.verbose {
             println!("[PIE] Input: {}", input_text);
@@ -58,9 +61,7 @@ fn main() -> anyhow::Result<()> {
             println!();
         }
 
-        let result = engine
-            .process(&input_text, &args.mode)
-            .await?;
+        let result = engine.process(&input_text, &args.mode).await?;
 
         if args.verbose {
             println!("[PIE] Detected intent:");
@@ -70,14 +71,21 @@ fn main() -> anyhow::Result<()> {
             println!("  Context: {:?}", result.intent.context);
             println!("  Constraints: {:?}", result.intent.constraints);
             println!();
-            println!("[PIE] Optimized prompt ({} chars):", result.optimized_prompt.len());
+            println!(
+                "[PIE] Optimized prompt ({} chars):",
+                result.optimized_prompt.len()
+            );
             println!("{}", result.optimized_prompt);
             println!();
         }
 
         // Send to LLM
         let response = engine
-            .send_to_llm(&result.optimized_prompt, &args.provider, args.model.as_deref())
+            .send_to_llm(
+                &result.optimized_prompt,
+                &args.provider,
+                args.model.as_deref(),
+            )
             .await?;
 
         println!("{}", response);

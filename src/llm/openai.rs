@@ -53,12 +53,10 @@ impl OpenAiClient {
     pub async fn chat(&self, prompt: &str, model: &str) -> anyhow::Result<String> {
         let request = ChatRequest {
             model: model.to_string(),
-            messages: vec![
-                ChatMessage {
-                    role: "user".to_string(),
-                    content: prompt.to_string(),
-                },
-            ],
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            }],
             temperature: 0.7,
             max_tokens: 2048,
         };

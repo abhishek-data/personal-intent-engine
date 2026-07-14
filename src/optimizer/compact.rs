@@ -1,6 +1,6 @@
+use super::{OptimizationMode, OptimizedPrompt, PromptSection};
 use crate::intent::Intent;
 use crate::memory::store::MemoryStore;
-use super::{OptimizedPrompt, OptimizationMode, PromptSection};
 
 /// Compact mode: Minimize token usage.
 /// Removes filler words, compresses context, keeps only the essential intent.
@@ -48,8 +48,17 @@ pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
 /// Remove common filler words/phrases
 fn remove_filler(text: &str) -> String {
     let fillers = [
-        "um", "uh", "like", "you know", "basically", "actually",
-        "literally", "so yeah", "i mean", "well,", "ok so",
+        "um",
+        "uh",
+        "like",
+        "you know",
+        "basically",
+        "actually",
+        "literally",
+        "so yeah",
+        "i mean",
+        "well,",
+        "ok so",
     ];
     let mut result = text.to_string();
     for filler in &fillers {

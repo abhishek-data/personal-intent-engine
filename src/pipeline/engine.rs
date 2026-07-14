@@ -1,8 +1,8 @@
 use crate::intent::{Intent, IntentExtractor};
 use crate::llm::LlmRouter;
 use crate::memory::store::MemoryStore;
-use crate::optimizer::{OptimizationMode, OptimizedPrompt};
-use crate::optimizer::{compact, balanced, enhanced, adaptive};
+use crate::optimizer::OptimizationMode;
+use crate::optimizer::{adaptive, balanced, compact, enhanced};
 
 /// Result of processing input through the PIE pipeline
 #[derive(Debug)]
@@ -58,7 +58,7 @@ impl PieEngine {
             "compact" => OptimizationMode::Compact,
             "balanced" => OptimizationMode::Balanced,
             "enhanced" => OptimizationMode::Enhanced,
-            "adaptive" | _ => OptimizationMode::Adaptive,
+            _ => OptimizationMode::Adaptive,
         };
 
         let optimized = match optimization_mode {

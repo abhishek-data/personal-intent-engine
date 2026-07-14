@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::{vad, FrameResampler, SmoothedVad, VadPolicy, WHISPER_SAMPLE_RATE};
+use super::{
+    vad, FrameResampler, SmoothedVad, VadPolicy, VoiceActivityDetector, WHISPER_SAMPLE_RATE,
+};
 
 /// Commands for the audio worker thread
 enum Cmd {
@@ -16,7 +18,6 @@ enum Cmd {
 /// Audio chunk from cpal callback
 enum AudioChunk {
     Samples(Vec<f32>),
-    EndOfStream,
 }
 
 /// Callback for real-time 16kHz frames (used for streaming transcription)
@@ -61,19 +62,13 @@ impl AudioRecorder {
     }
 
     /// Register a callback for audio level visualization
-    pub fn with_level_callback<F: Fn(Vec<f32>) + Send + Sync + 'static>(
-        mut self,
-        cb: F,
-    ) -> Self {
+    pub fn with_level_callback<F: Fn(Vec<f32>) + Send + Sync + 'static>(mut self, cb: F) -> Self {
         self.level_cb = Some(Arc::new(cb));
         self
     }
 
     /// Register a callback for real-time 16kHz frames (streaming transcription)
-    pub fn with_audio_callback<F: Fn(&[f32]) + Send + Sync + 'static>(
-        mut self,
-        cb: F,
-    ) -> Self {
+    pub fn with_audio_callback<F: Fn(&[f32]) + Send + Sync + 'static>(mut self, cb: F) -> Self {
         self.audio_cb = Some(Arc::new(cb));
         self
     }
@@ -107,7 +102,7 @@ impl AudioRecorder {
             let stop_flag_for_stream = stop_flag.clone();
 
             // Get or create stream config
-            let config = match Self::get_preferred_config(&thread_device) {
+            let config = match Self::get_preferred_config(&thread_device, &config_cache) {
                 Ok(cfg) => cfg,
                 Err(e) => {
                     let _ = init_tx.send(Err(format!("Config failed: {e}")));
@@ -117,18 +112,28 @@ impl AudioRecorder {
 
             let sample_rate = config.sample_rate().0;
             let channels = config.channels() as usize;
+            let stream_config: cpal::StreamConfig = config.clone().into();
 
             // Build cpal stream
             let stream = match config.sample_format() {
-                cpal::SampleFormat::F32 => {
-                    Self::build_stream::<f32>(&thread_device, &config, sample_tx.clone(), stop_flag_for_stream.clone())
-                }
-                cpal::SampleFormat::I16 => {
-                    Self::build_stream::<i16>(&thread_device, &config, sample_tx.clone(), stop_flag_for_stream.clone())
-                }
-                cpal::SampleFormat::U8 => {
-                    Self::build_stream::<u8>(&thread_device, &config, sample_tx.clone(), stop_flag_for_stream.clone())
-                }
+                cpal::SampleFormat::F32 => Self::build_stream::<f32>(
+                    &thread_device,
+                    &stream_config,
+                    sample_tx.clone(),
+                    stop_flag_for_stream.clone(),
+                ),
+                cpal::SampleFormat::I16 => Self::build_stream::<i16>(
+                    &thread_device,
+                    &stream_config,
+                    sample_tx.clone(),
+                    stop_flag_for_stream.clone(),
+                ),
+                cpal::SampleFormat::U8 => Self::build_stream::<u8>(
+                    &thread_device,
+                    &stream_config,
+                    sample_tx.clone(),
+                    stop_flag_for_stream.clone(),
+                ),
                 fmt => {
                     let _ = init_tx.send(Err(format!("Unsupported format: {fmt:?}")));
                     return;
@@ -146,13 +151,14 @@ impl AudioRecorder {
             let _ = init_tx.send(Ok(()));
 
             // Consumer loop: read audio chunks, resample, apply VAD
-            let mut resampler = FrameResampler::new(sample_rate as usize, WHISPER_SAMPLE_RATE, channels);
+            let mut resampler =
+                FrameResampler::new(sample_rate as usize, WHISPER_SAMPLE_RATE, channels);
             let mut frame_buffer: Vec<f32> = Vec::new();
 
             loop {
                 // Check for commands (non-blocking)
                 match cmd_rx.try_recv() {
-                    Ok(Cmd::Start(policy, _ts)) => {
+                    Ok(Cmd::Start(_policy, _ts)) => {
                         stop_flag.store(false, Ordering::Relaxed);
                         if let Some(ref vad) = vad {
                             vad.lock().unwrap().reset();
@@ -215,7 +221,6 @@ impl AudioRecorder {
                             cb(resampled);
                         }
                     }
-                    Ok(AudioChunk::EndOfStream) => break,
                     Err(mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 }
@@ -249,10 +254,12 @@ impl AudioRecorder {
     pub fn stop(&self) -> anyhow::Result<Vec<f32>> {
         let (tx, rx) = mpsc::channel();
         if let Some(cmd_tx) = &self.cmd_tx {
-            cmd_tx.send(Cmd::Stop(tx))
+            cmd_tx
+                .send(Cmd::Stop(tx))
                 .map_err(|_| anyhow::anyhow!("Audio worker disconnected"))?;
         }
-        rx.recv().map_err(|_| anyhow::anyhow!("Audio worker dropped result"))
+        rx.recv()
+            .map_err(|_| anyhow::anyhow!("Audio worker dropped result"))
     }
 
     /// Build a cpal input stream for the given sample type
@@ -261,8 +268,10 @@ impl AudioRecorder {
         config: &cpal::StreamConfig,
         tx: mpsc::Sender<AudioChunk>,
         stop_flag: Arc<AtomicBool>,
-    ) -> anyhow::Result<cpal::Stream> {
-        let channels = config.channels as usize;
+    ) -> anyhow::Result<cpal::Stream>
+    where
+        f32: cpal::FromSample<T>,
+    {
         let stream = device
             .build_input_stream(
                 config,
@@ -283,11 +292,30 @@ impl AudioRecorder {
         Ok(stream)
     }
 
-    /// Get preferred stream config for a device (with caching)
-    fn get_preferred_config(device: &Device) -> anyhow::Result<cpal::SupportedStreamConfig> {
-        device
+    /// Get preferred stream config for a device (with caching to avoid HAL round-trips)
+    fn get_preferred_config(
+        device: &Device,
+        cache: &Arc<Mutex<Option<(String, cpal::SupportedStreamConfig)>>>,
+    ) -> anyhow::Result<cpal::SupportedStreamConfig> {
+        let device_name = device.name().unwrap_or_default();
+
+        if let Ok(guard) = cache.lock() {
+            if let Some((cached_name, cached_config)) = guard.as_ref() {
+                if *cached_name == device_name {
+                    return Ok(cached_config.clone());
+                }
+            }
+        }
+
+        let config = device
             .default_input_config()
-            .map_err(|e| anyhow::anyhow!("No input config: {e}"))
+            .map_err(|e| anyhow::anyhow!("No input config: {e}"))?;
+
+        if let Ok(mut guard) = cache.lock() {
+            *guard = Some((device_name, config.clone()));
+        }
+
+        Ok(config)
     }
 
     /// List available input devices

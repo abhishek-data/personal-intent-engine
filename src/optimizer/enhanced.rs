@@ -1,6 +1,6 @@
+use super::{OptimizationMode, OptimizedPrompt, PromptSection};
 use crate::intent::Intent;
 use crate::memory::store::MemoryStore;
-use super::{OptimizedPrompt, OptimizationMode, PromptSection};
 
 /// Enhanced mode: Maximize reasoning quality.
 /// Enriches the prompt with missing context, structured sections, and assumptions.
@@ -37,7 +37,9 @@ pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
     if !intent.constraints.is_empty() {
         sections.push(PromptSection {
             label: "Constraints & Requirements".to_string(),
-            content: intent.constraints.iter()
+            content: intent
+                .constraints
+                .iter()
                 .enumerate()
                 .map(|(i, c)| format!("{}. {}", i + 1, c))
                 .collect::<Vec<_>>()
@@ -49,7 +51,9 @@ pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
     if !intent.questions.is_empty() {
         sections.push(PromptSection {
             label: "Specific Questions".to_string(),
-            content: intent.questions.iter()
+            content: intent
+                .questions
+                .iter()
                 .enumerate()
                 .map(|(i, q)| format!("{}. {}", i + 1, q))
                 .collect::<Vec<_>>()
@@ -73,8 +77,10 @@ pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
             intent.confidence,
             match intent.confidence {
                 crate::intent::IntentConfidence::High => "Clear request, proceed directly",
-                crate::intent::IntentConfidence::Medium => "Some ambiguity, consider asking if unclear",
-                crate::intent::IntentConfidence::Low => "Uncertain input, clarify before proceeding",
+                crate::intent::IntentConfidence::Medium =>
+                    "Some ambiguity, consider asking if unclear",
+                crate::intent::IntentConfidence::Low =>
+                    "Uncertain input, clarify before proceeding",
             }
         ),
     });

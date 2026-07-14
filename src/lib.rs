@@ -12,7 +12,7 @@ pub mod pipeline;
 pub mod stt;
 
 // Re-export main pipeline
-pub use pipeline::engine::PieEngine;
-pub use intent::schema::{Intent, IntentConfidence, ConversationType};
-pub use optimizer::OptimizationMode;
+pub use intent::schema::{ConversationType, Intent, IntentConfidence};
 pub use memory::store::MemoryStore;
+pub use optimizer::OptimizationMode;
+pub use pipeline::engine::PieEngine;

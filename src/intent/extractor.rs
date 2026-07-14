@@ -1,5 +1,5 @@
-use super::schema::*;
 use super::classifier;
+use super::schema::*;
 use crate::memory::store::MemoryStore;
 
 /// Extracts structured intent from user text input.
@@ -7,6 +7,8 @@ use crate::memory::store::MemoryStore;
 /// Phase 1: Rule-based extraction (no ML model required).
 /// Phase 2: Small local model for better extraction (future).
 pub struct IntentExtractor {
+    // Reserved for Phase 2 model-based extraction; unused by the rule-based path.
+    #[allow(dead_code)]
     memory: Option<MemoryStore>,
 }
 
@@ -37,7 +39,7 @@ impl IntentExtractor {
             context,
             constraints,
             questions,
-            assumptions: Vec::new(), // Phase 2
+            assumptions: Vec::new(),  // Phase 2
             missing_info: Vec::new(), // Phase 2
             confidence,
             conversation_type,
@@ -58,15 +60,17 @@ impl IntentExtractor {
 
         // Uncertainty markers
         let uncertainty_words = [
-            "maybe", "perhaps", "not sure", "i think", "might",
-            "possibly", "kind of", "sort of", "i guess", "probably",
+            "maybe", "perhaps", "not sure", "i think", "might", "possibly", "kind of", "sort of",
+            "i guess", "probably",
         ];
         let lower = text.to_lowercase();
         let has_uncertainty = uncertainty_words.iter().any(|w| lower.contains(w));
 
         // Self-corrections
-        let has_correction = lower.contains("actually") || lower.contains("wait")
-            || lower.contains("i mean") || lower.contains("sorry");
+        let has_correction = lower.contains("actually")
+            || lower.contains("wait")
+            || lower.contains("i mean")
+            || lower.contains("sorry");
 
         if has_correction {
             IntentConfidence::Low
@@ -121,17 +125,23 @@ impl IntentExtractor {
     /// Extract context (background information)
     fn extract_context(&self, text: &str) -> Vec<String> {
         let mut context = Vec::new();
-        let lower = text.to_lowercase();
 
         // Context markers
         let markers = [
-            "i'm working on", "i am working on",
-            "i have", "i've been",
-            "currently", "right now",
-            "for example", "e.g.",
-            "background:", "context:",
-            "i'm using", "i am using",
-            "my project", "our project",
+            "i'm working on",
+            "i am working on",
+            "i have",
+            "i've been",
+            "currently",
+            "right now",
+            "for example",
+            "e.g.",
+            "background:",
+            "context:",
+            "i'm using",
+            "i am using",
+            "my project",
+            "our project",
         ];
 
         for sentence in text.split(&['.', ';'][..]) {
@@ -150,10 +160,31 @@ impl IntentExtractor {
 
         // Technology keywords
         let tech_words = [
-            "react", "nextjs", "next.js", "node", "python", "rust", "typescript",
-            "javascript", "docker", "kubernetes", "aws", "gcp", "azure",
-            "postgres", "mysql", "redis", "mongodb", "graphql", "rest",
-            "whisper", "llm", "gpt", "claude", "gemini", "api",
+            "react",
+            "nextjs",
+            "next.js",
+            "node",
+            "python",
+            "rust",
+            "typescript",
+            "javascript",
+            "docker",
+            "kubernetes",
+            "aws",
+            "gcp",
+            "azure",
+            "postgres",
+            "mysql",
+            "redis",
+            "mongodb",
+            "graphql",
+            "rest",
+            "whisper",
+            "llm",
+            "gpt",
+            "claude",
+            "gemini",
+            "api",
         ];
 
         let lower = text.to_lowercase();

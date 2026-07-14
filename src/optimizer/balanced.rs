@@ -1,6 +1,6 @@
+use super::{OptimizationMode, OptimizedPrompt, PromptSection};
 use crate::intent::Intent;
 use crate::memory::store::MemoryStore;
-use super::{OptimizedPrompt, OptimizationMode, PromptSection};
 
 /// Balanced mode: Keep relevant context, remove noise, organize prompts.
 /// This is the default mode — good balance of tokens and quality.
@@ -11,7 +11,8 @@ pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
     if let Some(role) = &memory.profile.role {
         sections.push(PromptSection {
             label: "Context".to_string(),
-            content: format!("Role: {}. Technologies: {}",
+            content: format!(
+                "Role: {}. Technologies: {}",
                 role,
                 memory.profile.technologies.join(", ")
             ),

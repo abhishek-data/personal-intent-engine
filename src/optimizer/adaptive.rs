@@ -1,7 +1,7 @@
+use super::{balanced, compact, enhanced};
+use super::{OptimizationMode, OptimizedPrompt};
 use crate::intent::{Intent, IntentConfidence};
 use crate::memory::store::MemoryStore;
-use super::{OptimizationMode, OptimizedPrompt};
-use super::{compact, balanced, enhanced};
 
 /// Adaptive mode: Automatically select the best optimization strategy.
 pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
@@ -15,7 +15,7 @@ pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
 }
 
 /// Select the best optimization mode based on context
-fn select_mode(intent: &Intent, memory: &MemoryStore) -> OptimizationMode {
+fn select_mode(intent: &Intent, _memory: &MemoryStore) -> OptimizationMode {
     let word_count = intent.raw_input.split_whitespace().count();
 
     // Short, high-confidence inputs -> compact

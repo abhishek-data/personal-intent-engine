@@ -9,4 +9,5 @@ pub const FRAME_SAMPLES: usize = WHISPER_SAMPLE_RATE * FRAME_DURATION_MS / 1000;
 
 /// Re-exports
 pub use recorder::AudioRecorder;
+pub use resampler::FrameResampler;
 pub use vad::{SmoothedVad, VadPolicy, VoiceActivityDetector};
