@@ -25,12 +25,12 @@ tokio = { version = "1", features = ["sync", "fs", "io-util", "rt-multi-thread"]
 reqwest = { version = "0.12", features = ["stream", "rustls-tls"], default-features = false }
 futures-util = "0.3"
 
+# The engine does the actual work; the app is a thin shell over it.
+# default-features = false drops the CLI-only clap dependency.
+pie-engine = { path = "..", default-features = false, features = ["whisper", "vad"] }
+
 # macOS: the recording overlay must float over other apps without stealing
 # focus (a plain always-on-top window either won't show or grabs focus and
 # breaks paste). NSPanel with a non-activating style is the reliable path.
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
-
-# The engine does the actual work; the app is a thin shell over it.
-# default-features = false drops the CLI-only clap dependency.
-pie-engine = { path = "..", default-features = false, features = ["whisper", "vad"] }
