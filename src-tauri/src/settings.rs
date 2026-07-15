@@ -24,6 +24,8 @@ pub struct Settings {
     /// What the hotkey flow pastes into the active app:
     /// "transcript" (raw speech-to-text) or "prompt" (PIE-optimized prompt)
     pub paste_output: String,
+    /// Max number of recordings kept in the history store (hard cap).
+    pub history_limit: usize,
 }
 
 impl Default for Settings {
@@ -37,6 +39,7 @@ impl Default for Settings {
             llm_model: String::new(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
             paste_output: "transcript".to_string(),
+            history_limit: 10,
         }
     }
 }
