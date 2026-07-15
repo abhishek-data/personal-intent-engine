@@ -1,9 +1,13 @@
+<p align="center">
+  <img src="assets/icon.png" alt="PIE" width="128" height="128" />
+</p>
+
 # PIE — Personal Intent Engine
 
 **Speak anywhere. PIE turns your voice into a structured, well-formed prompt and drops it right where your cursor is.**
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS-lightgrey.svg)]()
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)]()
 [![Built with Rust](https://img.shields.io/badge/Rust-stable-000000.svg?logo=rust)]()
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB.svg?logo=tauri)]()
 [![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00.svg?logo=svelte)]()
