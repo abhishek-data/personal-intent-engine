@@ -54,6 +54,17 @@ Most people type rambling, half-formed requests into ChatGPT. PIE fixes that at 
 - **In-app model manager.** Download whisper and Silero models from the Models tab with a progress bar — no `curl`, no manual setup.
 - **Three ways to use it:** a desktop app, a CLI, and a reusable Rust library.
 
+## Installation
+
+Download the latest installer from the [releases page](https://github.com/abhishek-data/personal-intent-engine/releases):
+
+- **macOS** — download the `.dmg`, open it, and drag PIE to Applications. The build is currently unsigned, so the first time you launch it, right-click the app and choose **Open** to get past Gatekeeper.
+- **Windows** — download and run the `.exe` installer. Windows SmartScreen may warn about an unrecognized app; click **More info → Run anyway**.
+
+> Builds are not yet code-signed or notarized. Homebrew cask / winget packages may follow once signed releases are available.
+
+Prefer to build it yourself? See [Quick start](#quick-start-desktop-app) below.
+
 ## How it's built
 
 PIE is a Cargo workspace with a clean separation between the engine and the app shell:
