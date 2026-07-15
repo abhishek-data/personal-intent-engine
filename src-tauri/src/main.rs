@@ -111,6 +111,8 @@ fn do_start_recording(app: &AppHandle) -> Result<(), String> {
 
     *recorder_slot = Some(recorder);
     emit_state(app, "recording");
+    // Escape cancels the in-flight recording, even from another app.
+    register_cancel_key(app);
     Ok(())
 }
 
@@ -127,6 +129,8 @@ async fn do_stop_recording(app: AppHandle) -> Result<Outcome, String> {
         recorder.close().map_err(|e| e.to_string())?;
         samples
     };
+    // Past the point of no return — Escape no longer cancels once decoding.
+    unregister_cancel_key(&app);
     state.busy.store(true, Ordering::Release);
     emit_state(&app, "decoding");
 
@@ -135,6 +139,48 @@ async fn do_stop_recording(app: AppHandle) -> Result<Outcome, String> {
     state.busy.store(false, Ordering::Release);
     emit_state(&app, "idle");
     result
+}
+
+/// Stop and discard an in-flight recording without transcribing, and reset the
+/// UI. Shared by the Cancel button and the Escape key.
+fn do_cancel_recording(app: &AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        let mut slot = state.recorder.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(mut recorder) = slot.take() {
+            let _ = recorder.stop();
+            let _ = recorder.close();
+        }
+    }
+    unregister_cancel_key(app);
+    emit_state(app, "idle");
+}
+
+/// Grab Escape globally for the duration of a recording so it can be cancelled
+/// from anywhere — recordings usually start via the global hotkey while another
+/// app is focused. Best-effort: if Escape can't be registered globally, the
+/// in-window key handler still cancels when PIE itself has focus.
+fn register_cancel_key(app: &AppHandle) {
+    let Ok(esc) = "Escape".parse::<Shortcut>() else {
+        log::warn!("Could not parse the Escape shortcut");
+        return;
+    };
+    let registered = app
+        .global_shortcut()
+        .on_shortcut(esc, |app, _shortcut, event| {
+            if event.state() == ShortcutState::Pressed {
+                do_cancel_recording(app);
+            }
+        });
+    if let Err(e) = registered {
+        log::warn!("Escape-to-cancel unavailable: {e}");
+    }
+}
+
+/// Release the Escape grab once recording ends (stopped or cancelled).
+fn unregister_cancel_key(app: &AppHandle) {
+    if let Ok(esc) = "Escape".parse::<Shortcut>() {
+        let _ = app.global_shortcut().unregister(esc);
+    }
 }
 
 async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Outcome, String> {
@@ -366,13 +412,8 @@ async fn stop_recording(app: AppHandle) -> Result<Outcome, String> {
 }
 
 #[tauri::command]
-fn cancel_recording(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let mut recorder_slot = state.recorder.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(mut recorder) = recorder_slot.take() {
-        let _ = recorder.stop();
-        let _ = recorder.close();
-    }
-    emit_state(&app, "idle");
+fn cancel_recording(app: AppHandle) -> Result<(), String> {
+    do_cancel_recording(&app);
     Ok(())
 }
 
