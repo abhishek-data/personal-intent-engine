@@ -21,6 +21,7 @@ use pie_engine::audio::{
     VAD_OFFLINE_HANGOVER_FRAMES, VAD_ONSET_FRAMES, VAD_PREFILL_FRAMES,
     VAD_STREAMING_HANGOVER_FRAMES,
 };
+use pie_engine::history::{HistoryStore, NewEntry};
 use pie_engine::stt::{SttEngine, WhisperEngine};
 use pie_engine::PieEngine;
 use settings::Settings;
@@ -39,6 +40,8 @@ struct AppState {
     whisper: Mutex<Option<(PathBuf, String, Arc<WhisperEngine>)>>,
     /// Text pipeline: intent -> memory -> optimizer -> LLM router.
     engine: tokio::sync::Mutex<PieEngine>,
+    /// Local SQLite history of recordings.
+    history: Mutex<HistoryStore>,
 }
 
 /// Result payload for the frontend after a recording is processed.
@@ -166,7 +169,7 @@ async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Ou
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(Outcome {
+    let outcome = Outcome {
         transcript,
         objective: result.intent.objective,
         conversation_type: format!("{:?}", result.intent.conversation_type),
@@ -174,7 +177,28 @@ async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Ou
         optimized_prompt: result.optimized_prompt,
         estimated_tokens: result.estimated_tokens,
         mode: format!("{:?}", result.mode),
-    })
+    };
+
+    // Best-effort history capture — never fail the recording over it.
+    {
+        let entry = NewEntry {
+            transcript: outcome.transcript.clone(),
+            objective: opt(&outcome.objective),
+            conversation_type: opt(&outcome.conversation_type),
+            confidence: opt(&outcome.confidence),
+            optimized_prompt: opt(&outcome.optimized_prompt),
+            estimated_tokens: Some(outcome.estimated_tokens as i64),
+            mode: opt(&outcome.mode),
+            language: opt(&settings.language),
+        };
+        let history = state.history.lock().unwrap_or_else(|e| e.into_inner());
+        match history.add(entry, settings.history_limit) {
+            Ok(_) => emit_event(app, "pie://history-changed", ()),
+            Err(e) => log::warn!("Failed to record history: {e}"),
+        }
+    }
+
+    Ok(outcome)
 }
 
 /* ─── global hotkey ─── */
@@ -477,6 +501,11 @@ fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), String> {
 
 /* ─── helpers ─── */
 
+/// Map an empty string to `None` so blank optimizer fields aren't stored.
+fn opt(s: &str) -> Option<String> {
+    (!s.is_empty()).then(|| s.to_string())
+}
+
 /// Load (or reuse) the whisper engine for the configured model + language.
 fn get_or_load_whisper(
     state: &State<'_, AppState>,
@@ -543,12 +572,21 @@ fn main() {
             let engine = tauri::async_runtime::block_on(PieEngine::new())?;
             let settings = Settings::load();
             let hotkey = settings.hotkey.clone();
+            let history_path = dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("pie")
+                .join("history.db");
+            let history = HistoryStore::open(&history_path).unwrap_or_else(|e| {
+                log::error!("Failed to open history DB ({e}); using in-memory");
+                HistoryStore::open_in_memory().expect("in-memory history must open")
+            });
             app.manage(AppState {
                 settings: Mutex::new(settings),
                 recorder: Mutex::new(None),
                 busy: AtomicBool::new(false),
                 whisper: Mutex::new(None),
                 engine: tokio::sync::Mutex::new(engine),
+                history: Mutex::new(history),
             });
             app.manage(EnigoState::new());
 
