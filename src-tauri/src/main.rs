@@ -230,8 +230,11 @@ fn register_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
         .parse()
         .map_err(|e| format!("Invalid hotkey '{hotkey}': {e}"))?;
     shortcuts
-        .on_shortcut(shortcut, |app, _shortcut, event| {
+        .on_shortcut(shortcut, move |app, fired, event| {
+            // Only the registered shortcut reaches here; log at debug for
+            // diagnosing "did my hotkey fire?" without noise at info level.
             if event.state() == ShortcutState::Pressed {
+                log::debug!("Hotkey fired: {fired:?}");
                 on_hotkey(app);
             }
         })
