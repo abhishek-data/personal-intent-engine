@@ -490,7 +490,15 @@ fn main() {
             }
 
             // Floating indicator, created hidden and shown per recording state.
+            // Creating the NSPanel overlay temporarily flips the app activation
+            // policy to Prohibited (tauri-nspanel's no_activate), which orders
+            // the main window out; restoring the policy doesn't bring it back,
+            // so re-show the main window explicitly afterwards.
             overlay::create_overlay(app.handle());
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.show();
+                let _ = main.set_focus();
+            }
 
             // System tray: PIE runs in the background so the hotkey works from
             // any app; the tray is how you reopen or quit it.
