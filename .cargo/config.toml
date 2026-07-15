@@ -1,0 +1,6 @@
+# whisper.cpp / ggml (transcribe-cpp-sys) uses std::filesystem, which requires
+# a macOS 10.15+ deployment target. `cargo tauri build` otherwise defaults the
+# C++ build scripts to 10.13 and fails to compile. Force 11.0 (Apple Silicon
+# baseline) for every build script, overriding whatever the caller sets.
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "11.0", force = true }
