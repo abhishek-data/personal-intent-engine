@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod models;
 mod overlay;
 mod paste;
 mod settings;
@@ -289,6 +290,103 @@ fn cancel_recording(app: AppHandle, state: State<'_, AppState>) -> Result<(), St
 }
 
 #[tauri::command]
+fn list_models(state: State<'_, AppState>) -> Vec<models::ModelInfo> {
+    let settings = state.settings.lock().expect("settings poisoned");
+    models::list_models(&settings)
+}
+
+/// Point the relevant setting at an already-downloaded catalog model.
+#[tauri::command]
+fn select_model(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let (kind, _url, path) = models::resolve(&id).ok_or("Unknown model")?;
+    if !path.exists() {
+        return Err("Model isn't downloaded yet".to_string());
+    }
+    let path_str = path.to_string_lossy().into_owned();
+    let settings = {
+        let mut settings = state.settings.lock().expect("settings poisoned");
+        match kind {
+            models::ModelKind::Whisper => settings.whisper_model = path_str,
+            models::ModelKind::Vad => settings.silero_model = path_str,
+        }
+        settings.clone()
+    };
+    settings.save().map_err(|e| e.to_string())?;
+    let _ = app.emit("pie://models-changed", ());
+    Ok(())
+}
+
+/// Stream a catalog model to disk, emitting `pie://download` progress. On
+/// success, auto-selects it so it's ready to use.
+#[tauri::command]
+async fn download_model(app: AppHandle, id: String) -> Result<(), String> {
+    use serde::Serialize;
+    use std::time::{Duration, Instant};
+
+    #[derive(Clone, Serialize)]
+    struct Progress {
+        id: String,
+        received: u64,
+        total: u64,
+        done: bool,
+        error: Option<String>,
+    }
+
+    let (_kind, url, dest) = models::resolve(&id).ok_or("Unknown model")?;
+
+    // Throttle progress events to ~10/s so the event channel isn't flooded.
+    let mut last_emit = Instant::now();
+    let result = models::download_to(url, &dest, |received, total| {
+        if last_emit.elapsed() >= Duration::from_millis(100) {
+            last_emit = Instant::now();
+            let _ = app.emit(
+                "pie://download",
+                Progress {
+                    id: id.clone(),
+                    received,
+                    total,
+                    done: false,
+                    error: None,
+                },
+            );
+        }
+    })
+    .await;
+
+    match result {
+        Ok(received) => {
+            let _ = app.emit(
+                "pie://download",
+                Progress {
+                    id: id.clone(),
+                    received,
+                    total: received,
+                    done: true,
+                    error: None,
+                },
+            );
+            // Auto-select the freshly downloaded model.
+            let state = app.state::<AppState>();
+            let _ = select_model(app.clone(), state, id);
+            Ok(())
+        }
+        Err(e) => {
+            let _ = app.emit(
+                "pie://download",
+                Progress {
+                    id,
+                    received: 0,
+                    total: 0,
+                    done: true,
+                    error: Some(e.clone()),
+                },
+            );
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
 async fn send_to_llm(state: State<'_, AppState>, prompt: String) -> Result<String, String> {
     let (provider, model) = {
         let settings = state.settings.lock().expect("settings poisoned");
@@ -431,6 +529,9 @@ fn main() {
             stop_recording,
             cancel_recording,
             send_to_llm,
+            list_models,
+            select_model,
+            download_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PIE");

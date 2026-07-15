@@ -20,7 +20,10 @@ log = "0.4"
 env_logger = "0.11"
 anyhow = "1"
 dirs = "6"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "fs", "io-util", "rt-multi-thread"] }
+# Streaming model downloads with progress.
+reqwest = { version = "0.12", features = ["stream", "rustls-tls"], default-features = false }
+futures-util = "0.3"
 
 # The engine does the actual work; the app is a thin shell over it.
 # default-features = false drops the CLI-only clap dependency.

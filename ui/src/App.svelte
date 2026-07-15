@@ -28,12 +28,62 @@
   let saved = $state(false);
   let savedTimer;
 
+  // Model catalog + in-flight downloads (id -> {received, total}).
+  let models = $state([]);
+  let downloads = $state({});
+  let showCustomPaths = $state(false);
+
+  async function loadModels() {
+    try {
+      models = await invoke("list_models");
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function downloadModel(id) {
+    error = "";
+    downloads = { ...downloads, [id]: { received: 0, total: 0 } };
+    try {
+      await invoke("download_model", { id });
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function selectModel(id) {
+    try {
+      await invoke("select_model", { id });
+      settings = await invoke("get_settings");
+      await loadModels();
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
   onMount(async () => {
     try {
       settings = await invoke("get_settings");
     } catch (e) {
       error = String(e);
     }
+    await loadModels();
+    await listen("pie://download", (event) => {
+      const p = event.payload;
+      if (p.done) {
+        const next = { ...downloads };
+        delete next[p.id];
+        downloads = next;
+        if (p.error) error = p.error;
+        loadModels();
+      } else {
+        downloads = {
+          ...downloads,
+          [p.id]: { received: p.received, total: p.total },
+        };
+      }
+    });
+    await listen("pie://models-changed", () => loadModels());
     await listen("pie://state", (event) => {
       recState = event.payload;
       if (recState === "recording") view = "record";
@@ -266,34 +316,89 @@
         {/if}
 
         {#if view === "models"}
+          {#snippet modelRow(m)}
+            <div class="model" class:selected={m.selected}>
+              <div class="model-info">
+                <span class="model-name">
+                  {m.name}
+                  {#if m.selected}<span class="badge">In use</span>{/if}
+                </span>
+                <span class="model-desc">{m.description} · {m.size_mb} MB</span>
+              </div>
+              <div class="model-action">
+                {#if downloads[m.id]}
+                  {@const d = downloads[m.id]}
+                  {@const p = d.total ? Math.round((d.received / d.total) * 100) : 0}
+                  <div class="progress" title="{p}%">
+                    <div class="progress-bar" style="width:{p}%"></div>
+                  </div>
+                  <span class="model-pct">{p}%</span>
+                {:else if !m.downloaded}
+                  <button class="btn" onclick={() => downloadModel(m.id)}>
+                    Download
+                  </button>
+                {:else if m.selected}
+                  <button class="btn ghost" disabled>Selected</button>
+                {:else}
+                  <button class="btn" onclick={() => selectModel(m.id)}>
+                    Use
+                  </button>
+                {/if}
+              </div>
+            </div>
+          {/snippet}
+
           <section class="group">
-            <div class="field">
-              <label for="whisper">Whisper model</label>
-              <input
-                id="whisper"
-                bind:value={settings.whisper_model}
-                onblur={save}
-                placeholder="~/.cache/pie/models/ggml-tiny.en.bin"
-              />
-              <p class="caption">
-                GGML/GGUF speech-to-text model. Larger models are more accurate
-                but slower.
-              </p>
-            </div>
-            <div class="field">
-              <label for="silero">Voice detection model</label>
-              <input
-                id="silero"
-                bind:value={settings.silero_model}
-                onblur={save}
-                placeholder="~/.cache/pie/models/silero_vad_v4.onnx"
-              />
-              <p class="caption">
-                Silero VAD trims silence so only speech is transcribed. Leave
-                empty to record continuously.
-              </p>
-            </div>
+            <span class="group-eyebrow">Speech to text</span>
+            {#each models.filter((m) => m.kind === "whisper") as m}
+              {@render modelRow(m)}
+            {/each}
           </section>
+
+          <section class="group">
+            <span class="group-eyebrow">Voice detection</span>
+            {#each models.filter((m) => m.kind === "vad") as m}
+              {@render modelRow(m)}
+            {/each}
+            <p class="caption">
+              Optional. Trims silence so only speech is transcribed; leave
+              unset to record continuously.
+            </p>
+          </section>
+
+          <details class="disclosure" bind:open={showCustomPaths}>
+            <summary>Custom model paths</summary>
+            <div class="group" style="margin-top:0.75rem">
+              <div class="field">
+                <label for="whisper">Whisper model path</label>
+                <input
+                  id="whisper"
+                  bind:value={settings.whisper_model}
+                  onblur={() => {
+                    save();
+                    loadModels();
+                  }}
+                  placeholder="~/.cache/pie/models/ggml-tiny.en.bin"
+                />
+              </div>
+              <div class="field">
+                <label for="silero">Voice detection model path</label>
+                <input
+                  id="silero"
+                  bind:value={settings.silero_model}
+                  onblur={() => {
+                    save();
+                    loadModels();
+                  }}
+                  placeholder="~/.cache/pie/models/silero_vad_v4.onnx"
+                />
+              </div>
+              <p class="caption">
+                Stored in <code>~/.cache/pie/models</code>. Point at your own
+                GGML/GGUF or ONNX files here.
+              </p>
+            </div>
+          </details>
         {/if}
 
         {#if view === "transcription"}
@@ -843,6 +948,92 @@
     font-size: 0.72rem;
     font-family: inherit;
     color: var(--text-2);
+  }
+
+  /* ── model catalog ── */
+  .group-eyebrow {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.11em;
+    color: var(--text-3);
+  }
+  .model {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.7rem 0.85rem;
+    background: #0e0f13;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+  }
+  .model.selected {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+  .model-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .model-name {
+    font-size: 0.83rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .badge {
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent-hi);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 0.05rem 0.4rem;
+  }
+  .model-desc {
+    font-size: 0.72rem;
+    color: var(--text-3);
+  }
+  .model-action {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-shrink: 0;
+  }
+  .progress {
+    width: 90px;
+    height: 6px;
+    background: var(--card-hi);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.15s linear;
+  }
+  .model-pct {
+    font-size: 0.72rem;
+    color: var(--text-2);
+    width: 2.4rem;
+    text-align: right;
+  }
+  .disclosure {
+    font-size: 0.8rem;
+  }
+  .disclosure summary {
+    color: var(--text-2);
+    cursor: default;
+    padding: 0.3rem 0;
+    list-style-position: inside;
+  }
+  .disclosure summary:hover {
+    color: var(--text);
   }
 
   /* ── segmented control ── */
