@@ -172,6 +172,7 @@ fn on_hotkey(app: &AppHandle) {
         .lock()
         .expect("recorder poisoned")
         .is_some();
+    log::debug!("on_hotkey: recording={recording}");
 
     if !recording {
         if let Err(e) = do_start_recording(app) {
