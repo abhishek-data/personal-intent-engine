@@ -47,6 +47,9 @@ clap = { version = "4", features = ["derive"], optional = true }
 # File-based storage
 dirs = "6"
 
+# Local SQLite store for transcription history (bundled = no system dep).
+rusqlite = { version = "0.32", features = ["bundled"] }
+
 # ONNX runtime for Silero VAD (optional, feature-gated)
 vad-rs = { git = "https://github.com/cjpais/vad-rs", default-features = false, optional = true }
 
