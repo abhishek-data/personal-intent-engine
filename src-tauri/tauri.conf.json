@@ -15,10 +15,12 @@
       {
         "label": "main",
         "title": "PIE — Personal Intent Engine",
-        "width": 820,
+        "width": 860,
         "height": 720,
-        "minWidth": 560,
-        "minHeight": 480
+        "minWidth": 620,
+        "minHeight": 500,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {
