@@ -149,7 +149,9 @@
 </script>
 
 <div class="topbar">
-  <span class="logo">🎤 PIE</span>
+  {#if saved}
+    <span class="saved-tag">Saved ✓</span>
+  {/if}
   <nav>
     {#each TABS as tab}
       <button
@@ -158,9 +160,6 @@
       >{tab.label}</button>
     {/each}
   </nav>
-  {#if saved}
-    <span style="margin-left:auto;font-size:11px;color:var(--success)">Saved ✓</span>
-  {/if}
 </div>
 
 <div class="content">
