@@ -9,6 +9,7 @@
   import OutputSettings from "./lib/OutputSettings.svelte";
   import HotkeyRecorder from "./lib/HotkeyRecorder.svelte";
   import HistorySettings from "./lib/HistorySettings.svelte";
+  import HistoryView from "./lib/HistoryView.svelte";
 
   let view = $state("record");
 
@@ -107,6 +108,7 @@
 
   const TABS = [
     { id: "record", label: "Record" },
+    { id: "history", label: "History" },
     { id: "models", label: "Models" },
     { id: "settings", label: "Settings" },
   ];
@@ -195,6 +197,8 @@
       onSave={save}
       onReloadModels={loadModels}
     />
+  {:else if view === "history"}
+    <HistoryView />
   {:else if view === "settings"}
     <TranscriptionSettings {settings} onSave={save} />
     <OutputSettings {settings} onSave={save} />
