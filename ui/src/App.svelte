@@ -8,6 +8,7 @@
   import TranscriptionSettings from "./lib/TranscriptionSettings.svelte";
   import OutputSettings from "./lib/OutputSettings.svelte";
   import HotkeyRecorder from "./lib/HotkeyRecorder.svelte";
+  import HistorySettings from "./lib/HistorySettings.svelte";
 
   let view = $state("record");
 
@@ -26,6 +27,7 @@
     llm_model: "",
     hotkey: "CmdOrCtrl+Shift+Space",
     paste_output: "transcript",
+    history_limit: 10,
   });
   let saved = $state(false);
   let savedTimer;
@@ -197,5 +199,6 @@
     <TranscriptionSettings {settings} onSave={save} />
     <OutputSettings {settings} onSave={save} />
     <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }} />
+    <HistorySettings {settings} onSave={save} />
   {/if}
 </div>
