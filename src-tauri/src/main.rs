@@ -499,6 +499,73 @@ fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to copy: {e}"))
 }
 
+#[tauri::command]
+fn list_history(
+    state: State<'_, AppState>,
+    query: Option<String>,
+) -> Result<Vec<pie_engine::history::HistoryEntry>, String> {
+    let limit = state
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .history_limit;
+    let history = state.history.lock().unwrap_or_else(|e| e.into_inner());
+    history
+        .list(query.as_deref(), limit)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_history_entry(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<(), String> {
+    {
+        let history = state.history.lock().unwrap_or_else(|e| e.into_inner());
+        history.delete(id).map_err(|e| e.to_string())?;
+    }
+    emit_event(&app, "pie://history-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_history(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let history = state.history.lock().unwrap_or_else(|e| e.into_inner());
+        history.clear().map_err(|e| e.to_string())?;
+    }
+    emit_event(&app, "pie://history-changed", ());
+    Ok(())
+}
+
+// Synchronous: it blocks with sleeps + keystroke simulation. Tauri runs sync
+// commands on its own thread pool, so this won't stall the async runtime.
+#[tauri::command]
+fn paste_history_entry(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enigo: State<'_, EnigoState>,
+    id: i64,
+) -> Result<(), String> {
+    let text = {
+        let history = state.history.lock().unwrap_or_else(|e| e.into_inner());
+        history
+            .get(id)
+            .map_err(|e| e.to_string())?
+            .map(|r| r.transcript)
+            .ok_or_else(|| "History entry not found".to_string())?
+    };
+
+    // Hide the main window so focus returns to the previously active app,
+    // then paste into it (same mechanism as the hotkey flow).
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    paste::paste_text(&app, &enigo, &text)
+}
+
 /* ─── helpers ─── */
 
 /// Map an empty string to `None` so blank optimizer fields aren't stored.
@@ -656,6 +723,10 @@ fn main() {
             cancel_recording,
             send_to_llm,
             copy_to_clipboard,
+            list_history,
+            delete_history_entry,
+            clear_history,
+            paste_history_entry,
             list_models,
             select_model,
             download_model,
