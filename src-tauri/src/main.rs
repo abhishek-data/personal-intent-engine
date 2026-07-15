@@ -467,6 +467,14 @@ async fn send_to_llm(state: State<'_, AppState>, prompt: String) -> Result<Strin
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|e| format!("Failed to copy: {e}"))
+}
+
 /* ─── helpers ─── */
 
 /// Load (or reuse) the whisper engine for the configured model + language.
@@ -609,6 +617,7 @@ fn main() {
             stop_recording,
             cancel_recording,
             send_to_llm,
+            copy_to_clipboard,
             list_models,
             select_model,
             download_model,
