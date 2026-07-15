@@ -457,9 +457,17 @@ fn build_recorder(settings: &Settings) -> anyhow::Result<(AudioRecorder, bool)> 
 fn main() {
     env_logger::init();
 
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    // macOS overlay is an NSPanel (see overlay.rs) — needs the nspanel plugin.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.plugin(tauri_nspanel::init());
+    }
+
+    builder
         .setup(|app| {
             let engine = tauri::async_runtime::block_on(PieEngine::new())?;
             let settings = Settings::load();
