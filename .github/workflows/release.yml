@@ -33,7 +33,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install frontend dependencies
-        run: npm install --prefix ui
+        working-directory: ui
+        run: npm install
 
       - name: Build app and publish release
         uses: tauri-apps/tauri-action@v0
