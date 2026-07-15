@@ -1,24 +1,10 @@
 <script>
-  // Home pane: the record button plus the result card
-  // (speech → intent → prompt). All state lives in the parent; this component
-  // only renders it and reports button clicks through callbacks.
-  let {
-    recState,
-    outcome,
-    llmResponse,
-    llmBusy,
-    hotkey,
-    stateLabel,
-    onToggle,
-    onCancel,
-    onSend,
-    onCopy,
-  } = $props();
+  let { recState, outcome, llmResponse, llmBusy, hotkey, stateLabel, onToggle, onCancel, onSend, onCopy } = $props();
 </script>
 
 <section class="record-hero" class:centered={!outcome}>
   <button
-    class="record {recState}"
+    class="record-btn {recState}"
     onclick={onToggle}
     disabled={recState === "decoding"}
     aria-label={stateLabel}
@@ -26,13 +12,9 @@
     <span class="dot"></span>
   </button>
   <p class="record-state">{stateLabel}</p>
-  <p class="record-hint">
-    or press <kbd>{hotkey}</kbd> in any app
-  </p>
+  <p class="record-hint">or press <kbd>{hotkey}</kbd> in any app</p>
   {#if recState === "recording"}
-    <button class="text-btn" onclick={onCancel} aria-label="Cancel recording">
-      Cancel
-    </button>
+    <button class="text-btn" onclick={onCancel} aria-label="Cancel recording">Cancel</button>
   {/if}
 </section>
 
@@ -61,17 +43,10 @@
       </div>
       <pre class="prompt">{outcome.optimized_prompt}</pre>
       <div class="actions">
-        <button
-          class="btn"
-          onclick={onSend}
-          disabled={llmBusy}
-          aria-label="Send optimized prompt to the LLM"
-        >
+        <button class="btn" onclick={onSend} disabled={llmBusy} aria-label="Send to LLM">
           {llmBusy ? "Sending…" : "Send to LLM"}
         </button>
-        <button class="btn ghost" onclick={onCopy} aria-label="Copy optimized prompt">
-          Copy
-        </button>
+        <button class="btn ghost" onclick={onCopy} aria-label="Copy prompt">Copy</button>
       </div>
     </div>
 

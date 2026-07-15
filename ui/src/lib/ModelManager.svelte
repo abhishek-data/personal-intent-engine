@@ -1,10 +1,5 @@
 <script>
-  // Models pane: the download/select catalog plus custom model paths.
-  // `settings` is the parent's shared $state proxy — mutating its fields here
-  // stays reactive everywhere; `onSave` persists them.
-  let { models, downloads, settings, onDownload, onSelect, onSave, onReloadModels } =
-    $props();
-
+  let { models, downloads, settings, onDownload, onSelect, onSave, onReloadModels } = $props();
   let showCustomPaths = $state(false);
 </script>
 
@@ -26,15 +21,11 @@
         </div>
         <span class="model-pct">{p}%</span>
       {:else if !m.downloaded}
-        <button class="btn" onclick={() => onDownload(m.id)} aria-label="Download {m.name}">
-          Download
-        </button>
+        <button class="btn sm" onclick={() => onDownload(m.id)} aria-label="Download {m.name}">Download</button>
       {:else if m.selected}
-        <button class="btn ghost" disabled>Selected</button>
+        <button class="btn ghost sm" disabled>Selected</button>
       {:else}
-        <button class="btn" onclick={() => onSelect(m.id)} aria-label="Use {m.name}">
-          Use
-        </button>
+        <button class="btn sm" onclick={() => onSelect(m.id)} aria-label="Use {m.name}">Use</button>
       {/if}
     </div>
   </div>
@@ -52,24 +43,18 @@
   {#each models.filter((m) => m.kind === "vad") as m}
     {@render modelRow(m)}
   {/each}
-  <p class="caption">
-    Optional. Trims silence so only speech is transcribed; leave unset to record
-    continuously.
-  </p>
+  <p class="caption">Optional. Trims silence so only speech is transcribed.</p>
 </section>
 
 <details class="disclosure" bind:open={showCustomPaths}>
   <summary>Custom model paths</summary>
-  <div class="group" style="margin-top:0.75rem">
+  <div class="group" style="margin-top:var(--space-3)">
     <div class="field">
       <label for="whisper">Whisper model path</label>
       <input
         id="whisper"
         bind:value={settings.whisper_model}
-        onblur={() => {
-          onSave();
-          onReloadModels();
-        }}
+        onblur={() => { onSave(); onReloadModels(); }}
         placeholder="~/.cache/pie/models/ggml-tiny.en.bin"
       />
     </div>
@@ -78,16 +63,10 @@
       <input
         id="silero"
         bind:value={settings.silero_model}
-        onblur={() => {
-          onSave();
-          onReloadModels();
-        }}
+        onblur={() => { onSave(); onReloadModels(); }}
         placeholder="~/.cache/pie/models/silero_vad_v4.onnx"
       />
     </div>
-    <p class="caption">
-      Stored in <code>~/.cache/pie/models</code>. Point at your own GGML/GGUF or
-      ONNX files here.
-    </p>
+    <p class="caption">Override the catalog with your own model files.</p>
   </div>
 </details>
