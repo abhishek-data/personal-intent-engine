@@ -53,8 +53,16 @@ struct Outcome {
     mode: String,
 }
 
+/// Emit an event to the frontend, logging (rather than silently dropping) any
+/// failure so a broken event channel is visible in the logs.
+fn emit_event<S: Serialize + Clone>(app: &AppHandle, event: &str, payload: S) {
+    if let Err(e) = app.emit(event, payload) {
+        log::warn!("Failed to emit {event}: {e}");
+    }
+}
+
 fn emit_state(app: &AppHandle, state: &str) {
-    let _ = app.emit("pie://state", state);
+    emit_event(app, "pie://state", state);
     // The floating overlay is only visible while a session is in flight.
     match state {
         "recording" | "decoding" => overlay::show_overlay(app),
@@ -74,8 +82,8 @@ fn show_main_window(app: &AppHandle) {
 /* ─── recording session (shared by UI commands and the global hotkey) ─── */
 
 fn do_start_recording(app: &AppHandle) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    let mut recorder_slot = state.recorder.lock().expect("recorder poisoned");
+    let state = app.try_state::<AppState>().ok_or("App state unavailable")?;
+    let mut recorder_slot = state.recorder.lock().unwrap_or_else(|e| e.into_inner());
     if recorder_slot.is_some() {
         return Err("Already recording".to_string());
     }
@@ -83,7 +91,11 @@ fn do_start_recording(app: &AppHandle) -> Result<(), String> {
         return Err("Still processing the previous recording".to_string());
     }
 
-    let settings = state.settings.lock().expect("settings poisoned").clone();
+    let settings = state
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     let (mut recorder, vad_active) = build_recorder(&settings).map_err(|e| e.to_string())?;
     recorder.open(None).map_err(|e| e.to_string())?;
     recorder
@@ -100,11 +112,11 @@ fn do_start_recording(app: &AppHandle) -> Result<(), String> {
 }
 
 async fn do_stop_recording(app: AppHandle) -> Result<Outcome, String> {
-    let state = app.state::<AppState>();
+    let state = app.try_state::<AppState>().ok_or("App state unavailable")?;
 
     // 1. Capture: take the recorder out and collect the session's samples.
     let samples = {
-        let mut recorder_slot = state.recorder.lock().expect("recorder poisoned");
+        let mut recorder_slot = state.recorder.lock().unwrap_or_else(|e| e.into_inner());
         let Some(mut recorder) = recorder_slot.take() else {
             return Err("Not recording".to_string());
         };
@@ -123,12 +135,16 @@ async fn do_stop_recording(app: AppHandle) -> Result<Outcome, String> {
 }
 
 async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Outcome, String> {
-    let state = app.state::<AppState>();
+    let state = app.try_state::<AppState>().ok_or("App state unavailable")?;
     if samples.len() < 1600 {
         return Err("Recording too short (or VAD detected no speech)".to_string());
     }
 
-    let settings = state.settings.lock().expect("settings poisoned").clone();
+    let settings = state
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
 
     // 2. Transcribe on a blocking thread (Metal/CPU inference).
     let whisper = get_or_load_whisper(&state, &settings)?;
@@ -166,18 +182,21 @@ async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Ou
 /// Toggle handler: first press starts recording, second press stops,
 /// transcribes, and pastes the result into the app that has focus.
 fn on_hotkey(app: &AppHandle) {
-    let state = app.state::<AppState>();
+    let Some(state) = app.try_state::<AppState>() else {
+        log::error!("on_hotkey: app state unavailable");
+        return;
+    };
     let recording = state
         .recorder
         .lock()
-        .expect("recorder poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .is_some();
     log::debug!("on_hotkey: recording={recording}");
 
     if !recording {
         if let Err(e) = do_start_recording(app) {
             log::warn!("Hotkey start failed: {e}");
-            let _ = app.emit("pie://error", e);
+            emit_event(app, "pie://error", e);
         }
         return;
     }
@@ -187,12 +206,15 @@ fn on_hotkey(app: &AppHandle) {
         match do_stop_recording(app.clone()).await {
             Ok(outcome) => {
                 // Show the result in the window (if it's open) ...
-                let _ = app.emit("pie://outcome", outcome.clone());
+                emit_event(&app, "pie://outcome", outcome.clone());
 
                 // ... and paste into whichever app has focus.
+                let Some(state) = app.try_state::<AppState>() else {
+                    log::error!("hotkey paste: app state unavailable");
+                    return;
+                };
                 let settings = {
-                    let state = app.state::<AppState>();
-                    let s = state.settings.lock().expect("settings poisoned");
+                    let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
                     s.clone()
                 };
                 let text = if settings.paste_output == "prompt" {
@@ -201,7 +223,9 @@ fn on_hotkey(app: &AppHandle) {
                     outcome.transcript
                 };
                 let result = tauri::async_runtime::spawn_blocking(move || {
-                    let enigo = app.state::<EnigoState>();
+                    let enigo = app
+                        .try_state::<EnigoState>()
+                        .ok_or("Keystroke engine unavailable")?;
                     paste::paste_text(&app, &enigo, &text)
                 })
                 .await;
@@ -213,7 +237,7 @@ fn on_hotkey(app: &AppHandle) {
             }
             Err(e) => {
                 log::warn!("Hotkey stop failed: {e}");
-                let _ = app.emit("pie://error", e);
+                emit_event(&app, "pie://error", e);
             }
         }
     });
@@ -253,7 +277,11 @@ fn register_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
 
 #[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> Settings {
-    state.settings.lock().expect("settings poisoned").clone()
+    state
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 #[tauri::command]
@@ -263,7 +291,7 @@ fn update_settings(
     settings: Settings,
 ) -> Result<(), String> {
     let hotkey_changed = {
-        let current = state.settings.lock().expect("settings poisoned");
+        let current = state.settings.lock().unwrap_or_else(|e| e.into_inner());
         current.hotkey != settings.hotkey
     };
     // Register the new hotkey BEFORE persisting: if it's invalid, we return the
@@ -274,7 +302,7 @@ fn update_settings(
         register_hotkey(&app, &settings.hotkey)?;
     }
     settings.save().map_err(|e| e.to_string())?;
-    *state.settings.lock().expect("settings poisoned") = settings;
+    *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
     Ok(())
 }
 
@@ -282,9 +310,18 @@ fn update_settings(
 /// Settings shortcut recorder suspends it while capturing so the current
 /// binding doesn't fire on the keys being pressed to choose a new one.
 #[tauri::command]
-fn set_hotkey_active(app: AppHandle, state: State<'_, AppState>, active: bool) -> Result<(), String> {
+fn set_hotkey_active(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    active: bool,
+) -> Result<(), String> {
     if active {
-        let hotkey = state.settings.lock().expect("settings poisoned").hotkey.clone();
+        let hotkey = state
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .hotkey
+            .clone();
         register_hotkey(&app, &hotkey)
     } else {
         app.global_shortcut()
@@ -305,7 +342,7 @@ async fn stop_recording(app: AppHandle) -> Result<Outcome, String> {
 
 #[tauri::command]
 fn cancel_recording(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let mut recorder_slot = state.recorder.lock().expect("recorder poisoned");
+    let mut recorder_slot = state.recorder.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(mut recorder) = recorder_slot.take() {
         let _ = recorder.stop();
         let _ = recorder.close();
@@ -316,7 +353,7 @@ fn cancel_recording(app: AppHandle, state: State<'_, AppState>) -> Result<(), St
 
 #[tauri::command]
 fn list_models(state: State<'_, AppState>) -> Vec<models::ModelInfo> {
-    let settings = state.settings.lock().expect("settings poisoned");
+    let settings = state.settings.lock().unwrap_or_else(|e| e.into_inner());
     models::list_models(&settings)
 }
 
@@ -329,7 +366,7 @@ fn select_model(app: AppHandle, state: State<'_, AppState>, id: String) -> Resul
     }
     let path_str = path.to_string_lossy().into_owned();
     let settings = {
-        let mut settings = state.settings.lock().expect("settings poisoned");
+        let mut settings = state.settings.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             models::ModelKind::Whisper => settings.whisper_model = path_str,
             models::ModelKind::Vad => settings.silero_model = path_str,
@@ -337,7 +374,7 @@ fn select_model(app: AppHandle, state: State<'_, AppState>, id: String) -> Resul
         settings.clone()
     };
     settings.save().map_err(|e| e.to_string())?;
-    let _ = app.emit("pie://models-changed", ());
+    emit_event(&app, "pie://models-changed", ());
     Ok(())
 }
 
@@ -364,7 +401,8 @@ async fn download_model(app: AppHandle, id: String) -> Result<(), String> {
     let result = models::download_to(url, &dest, |received, total| {
         if last_emit.elapsed() >= Duration::from_millis(100) {
             last_emit = Instant::now();
-            let _ = app.emit(
+            emit_event(
+                &app,
                 "pie://download",
                 Progress {
                     id: id.clone(),
@@ -380,7 +418,8 @@ async fn download_model(app: AppHandle, id: String) -> Result<(), String> {
 
     match result {
         Ok(received) => {
-            let _ = app.emit(
+            emit_event(
+                &app,
                 "pie://download",
                 Progress {
                     id: id.clone(),
@@ -390,13 +429,15 @@ async fn download_model(app: AppHandle, id: String) -> Result<(), String> {
                     error: None,
                 },
             );
-            // Auto-select the freshly downloaded model.
-            let state = app.state::<AppState>();
-            let _ = select_model(app.clone(), state, id);
+            // Auto-select the freshly downloaded model (best-effort).
+            if let Some(state) = app.try_state::<AppState>() {
+                let _ = select_model(app.clone(), state, id);
+            }
             Ok(())
         }
         Err(e) => {
-            let _ = app.emit(
+            emit_event(
+                &app,
                 "pie://download",
                 Progress {
                     id,
@@ -414,7 +455,7 @@ async fn download_model(app: AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 async fn send_to_llm(state: State<'_, AppState>, prompt: String) -> Result<String, String> {
     let (provider, model) = {
-        let settings = state.settings.lock().expect("settings poisoned");
+        let settings = state.settings.lock().unwrap_or_else(|e| e.into_inner());
         (settings.provider.clone(), settings.llm_model.clone())
     };
     let model = (!model.is_empty()).then_some(model);
@@ -434,24 +475,21 @@ fn get_or_load_whisper(
     settings: &Settings,
 ) -> Result<Arc<WhisperEngine>, String> {
     if settings.whisper_model.is_empty() {
-        return Err(
-            "No whisper model configured. Set one in Settings (e.g. \
+        return Err("No whisper model configured. Set one in Settings (e.g. \
              ~/.cache/pie/models/ggml-tiny.en.bin)."
-                .to_string(),
-        );
+            .to_string());
     }
     let path = Settings::expand(&settings.whisper_model);
 
-    let mut cache = state.whisper.lock().expect("whisper cache poisoned");
+    let mut cache = state.whisper.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((cached_path, cached_lang, engine)) = cache.as_ref() {
         if *cached_path == path && *cached_lang == settings.language {
             return Ok(Arc::clone(engine));
         }
     }
 
-    let engine = Arc::new(
-        WhisperEngine::load(&path, &settings.language).map_err(|e| e.to_string())?,
-    );
+    let engine =
+        Arc::new(WhisperEngine::load(&path, &settings.language).map_err(|e| e.to_string())?);
     *cache = Some((path, settings.language.clone(), Arc::clone(&engine)));
     Ok(engine)
 }

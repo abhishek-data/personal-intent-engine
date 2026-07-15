@@ -1,6 +1,7 @@
 use super::openai::OpenAiClient;
 
-/// LLM router that selects provider and sends prompts.
+/// Routes prompts to an LLM provider (OpenAI-compatible or the local `echo`
+/// debug provider) and reports which providers are available.
 pub struct LlmRouter {
     client: Option<OpenAiClient>,
 }
@@ -12,6 +13,9 @@ impl Default for LlmRouter {
 }
 
 impl LlmRouter {
+    /// Build a router, picking up an OpenAI-compatible client from the
+    /// environment (`OPENAI_API_KEY`, optional `OPENAI_BASE_URL`) if present.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             client: OpenAiClient::from_env(),

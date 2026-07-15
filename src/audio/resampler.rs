@@ -27,6 +27,7 @@ impl FrameResampler {
     /// Create a resampler from `in_hz` to `out_hz` emitting frames of
     /// `frame_dur` duration. When rates match, input passes through and is
     /// only re-chunked into frames.
+    #[must_use]
     pub fn new(in_hz: usize, out_hz: usize, frame_dur: Duration) -> Self {
         let frame_samples = ((out_hz as f64 * frame_dur.as_secs_f64()).round()) as usize;
         assert!(frame_samples > 0, "frame duration too short");

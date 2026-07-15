@@ -10,10 +10,12 @@ pub const STREAM_FINALIZE_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 /// request travel the same channel so FIFO ordering guarantees every fed frame
 /// is processed before finalize runs.
 pub enum StreamCmd {
+    /// A 16 kHz mono frame to feed to the incremental decoder.
     Feed(Vec<f32>),
     /// Flush the stream and reply with the final text, or `None` if no stream
     /// was ever active (caller should fall back to batch transcription).
     Finalize(mpsc::Sender<Option<String>>),
+    /// Abort the stream and discard any in-flight audio.
     Cancel,
 }
 
@@ -39,6 +41,8 @@ impl Default for StreamRouter {
 }
 
 impl StreamRouter {
+    /// Create a closed router; call [`StreamRouter::open`] to begin a session.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             tx: Mutex::new(None),

@@ -33,6 +33,9 @@ struct ChatChoice {
 }
 
 impl OpenAiClient {
+    /// Create a client for `base_url` (a trailing slash is trimmed) using
+    /// `api_key` as the bearer token.
+    #[must_use]
     pub fn new(base_url: &str, api_key: &str) -> Self {
         Self {
             client: reqwest::Client::new(),

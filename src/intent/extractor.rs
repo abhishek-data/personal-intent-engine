@@ -14,11 +14,15 @@ impl Default for IntentExtractor {
 }
 
 impl IntentExtractor {
+    /// Create a rule-based intent extractor.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
 
-    /// Extract intent from text input
+    /// Extract structured intent (objective, constraints, questions, topics,
+    /// conversation type, confidence) from raw text.
+    #[must_use]
     pub fn extract(&self, text: &str) -> Intent {
         let text = text.trim();
         if text.is_empty() {

@@ -4,6 +4,7 @@ use crate::memory::store::MemoryStore;
 
 /// Balanced mode: Keep relevant context, remove noise, organize prompts.
 /// This is the default mode — good balance of tokens and quality.
+#[must_use]
 pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
     let mut sections = Vec::new();
 

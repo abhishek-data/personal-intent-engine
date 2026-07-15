@@ -4,6 +4,7 @@ use crate::memory::store::MemoryStore;
 
 /// Enhanced mode: Maximize reasoning quality.
 /// Enriches the prompt with missing context, structured sections, and assumptions.
+#[must_use]
 pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
     let mut sections = Vec::new();
 

@@ -179,7 +179,9 @@ pub async fn download_to(
         received += chunk.len() as u64;
         on_progress(received, total);
     }
-    file.flush().await.map_err(|e| format!("Flush failed: {e}"))?;
+    file.flush()
+        .await
+        .map_err(|e| format!("Flush failed: {e}"))?;
     drop(file);
     tokio::fs::rename(&tmp, dest)
         .await

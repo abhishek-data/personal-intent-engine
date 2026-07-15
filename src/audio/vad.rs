@@ -62,22 +62,28 @@ pub struct SmoothedVad {
 }
 
 impl SmoothedVad {
+    /// Wrap an inner detector with onset, hangover, and prefill smoothing.
+    #[must_use]
     pub fn new(
         inner: Box<dyn VoiceActivityDetector>,
         prefill_frames: usize,
         hangover_frames: usize,
         onset_frames: usize,
     ) -> Self {
+        // The prefill ring holds at most `prefill_frames + 1` frames, and the
+        // onset burst emits all of them at once — size both up front so steady
+        // capture never reallocates.
+        let ring_capacity = prefill_frames + 1;
         Self {
             inner,
             prefill_frames,
             hangover_frames,
             onset_frames,
-            frame_buffer: std::collections::VecDeque::new(),
+            frame_buffer: std::collections::VecDeque::with_capacity(ring_capacity),
             hangover_counter: 0,
             onset_counter: 0,
             in_speech: false,
-            temp_out: Vec::new(),
+            temp_out: Vec::with_capacity(super::FRAME_SAMPLES * ring_capacity),
         }
     }
 }
@@ -175,6 +181,9 @@ pub struct EnergyVad {
 }
 
 impl EnergyVad {
+    /// Create an energy-threshold detector; frames with RMS above `threshold`
+    /// are treated as speech.
+    #[must_use]
     pub fn new(threshold: f32) -> Self {
         Self { threshold }
     }

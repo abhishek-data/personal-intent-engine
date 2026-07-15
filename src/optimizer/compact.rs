@@ -4,6 +4,7 @@ use crate::memory::store::MemoryStore;
 
 /// Compact mode: Minimize token usage.
 /// Removes filler words, compresses context, keeps only the essential intent.
+#[must_use]
 pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
     let mut sections = Vec::new();
 

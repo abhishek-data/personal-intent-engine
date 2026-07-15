@@ -5,7 +5,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::vad::{VadFrame, VadPolicy, VoiceActivityDetector};
-use super::{FrameResampler, FRAME_DURATION_MS, WHISPER_SAMPLE_RATE};
+use super::{FrameResampler, FRAME_DURATION_MS, FRAME_SAMPLES, WHISPER_SAMPLE_RATE};
 
 /// Commands for the audio worker thread
 enum Cmd {
@@ -78,6 +78,7 @@ pub struct AudioRecorder {
 }
 
 impl AudioRecorder {
+    /// Create an idle recorder. No device is opened until [`AudioRecorder::open`].
     pub fn new() -> anyhow::Result<Self> {
         Ok(AudioRecorder {
             device: None,
@@ -93,6 +94,7 @@ impl AudioRecorder {
     /// Attach a single VAD engine, reconfigured per session for the offline vs
     /// streaming hangover tail. The two policies are mutually exclusive within
     /// a recording, so one engine covers both instead of two resident instances.
+    #[must_use]
     pub fn with_vad(
         mut self,
         detector: Box<dyn VoiceActivityDetector>,
@@ -109,6 +111,7 @@ impl AudioRecorder {
 
     /// Register a callback for audio level visualization. Receives raw
     /// device-rate mono chunks; spectrum bucketing is a later phase.
+    #[must_use]
     pub fn with_level_callback<F: Fn(Vec<f32>) + Send + Sync + 'static>(mut self, cb: F) -> Self {
         self.level_cb = Some(Arc::new(cb));
         self
@@ -118,6 +121,7 @@ impl AudioRecorder {
     /// active VAD policy has been applied. Frames arrive in order on the
     /// recorder's consumer thread — keep the callback cheap (e.g. forward to
     /// a channel) so it never stalls capture.
+    #[must_use]
     pub fn with_audio_callback<F: Fn(&[f32]) + Send + Sync + 'static>(mut self, cb: F) -> Self {
         self.audio_cb = Some(Arc::new(cb));
         self
@@ -320,7 +324,10 @@ impl AudioRecorder {
         T: Sample + SizedSample + Send + 'static,
         f32: cpal::FromSample<T>,
     {
-        let mut output_buffer: Vec<f32> = Vec::new();
+        // Reused across callbacks: `mem::take` below hands the filled buffer to
+        // the consumer without copying, then `reserve` re-grows the emptied
+        // buffer in a single allocation on the next callback.
+        let mut output_buffer: Vec<f32> = Vec::with_capacity(FRAME_SAMPLES * 2);
         let mut eos_sent = false;
 
         let stream_cb = move |data: &[T], _: &cpal::InputCallbackInfo| {
@@ -333,13 +340,16 @@ impl AudioRecorder {
             }
             eos_sent = false;
 
-            output_buffer.clear();
+            let frame_count = if channels == 1 {
+                data.len()
+            } else {
+                data.len() / channels
+            };
+            output_buffer.reserve(frame_count);
 
             if channels == 1 {
                 output_buffer.extend(data.iter().map(|&s| s.to_sample::<f32>()));
             } else {
-                let frame_count = data.len() / channels;
-                output_buffer.reserve(frame_count);
                 for frame in data.chunks_exact(channels) {
                     let mono =
                         frame.iter().map(|&s| s.to_sample::<f32>()).sum::<f32>() / channels as f32;
@@ -347,7 +357,12 @@ impl AudioRecorder {
                 }
             }
 
-            if tx.send(AudioChunk::Samples(output_buffer.clone())).is_err() {
+            // Move the buffer into the message (no copy); the emptied
+            // `output_buffer` is refilled from scratch on the next callback.
+            if tx
+                .send(AudioChunk::Samples(std::mem::take(&mut output_buffer)))
+                .is_err()
+            {
                 log::error!("Failed to send samples");
             }
         };
@@ -435,7 +450,9 @@ fn run_consumer(
         Duration::from_millis(FRAME_DURATION_MS as u64),
     );
 
-    let mut processed_samples = Vec::<f32>::new();
+    // Pre-size for a few seconds of speech so a typical recording accumulates
+    // without repeated reallocation; it still grows for longer sessions.
+    let mut processed_samples = Vec::<f32>::with_capacity(WHISPER_SAMPLE_RATE * 4);
     let mut recording = false;
     let mut vad_policy = VadPolicy::Offline;
 

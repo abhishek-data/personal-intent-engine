@@ -21,6 +21,8 @@ pub struct MemoryStore {
     path: Option<PathBuf>,
 }
 
+/// Aggregated statistics about how the user tends to phrase requests, updated
+/// on each interaction and used by the optimizer.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CommunicationPatterns {
     /// How the user typically structures requests
@@ -36,7 +38,9 @@ pub struct CommunicationPatterns {
 }
 
 impl MemoryStore {
-    /// Load memory from file, or create default
+    /// Load memory from disk, falling back to an empty store if the file is
+    /// missing or unparseable.
+    #[must_use]
     pub fn load() -> Self {
         let path = Self::default_path();
         if path.exists() {

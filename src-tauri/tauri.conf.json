@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src 'self' https://api.openai.com https://openrouter.ai https://api.openrouter.ai; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

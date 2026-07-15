@@ -4,6 +4,7 @@ use crate::intent::{Intent, IntentConfidence};
 use crate::memory::store::MemoryStore;
 
 /// Adaptive mode: Automatically select the best optimization strategy.
+#[must_use]
 pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
     let mode = select_mode(intent, memory);
     match mode {

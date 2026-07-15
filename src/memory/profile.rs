@@ -20,6 +20,7 @@ pub struct UserProfile {
     pub custom_terms: std::collections::HashMap<String, String>,
 }
 
+/// The shape of answer the user prefers, fed into prompt optimization.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ResponseStyle {
     /// Step-by-step instructions
@@ -34,6 +35,7 @@ pub enum ResponseStyle {
     Balanced,
 }
 
+/// How much depth the user wants in a response.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DetailLevel {
     /// Minimal — just the answer

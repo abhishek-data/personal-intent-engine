@@ -40,19 +40,12 @@ env_logger = "0.11"
 
 # Error handling
 anyhow = "1"
-thiserror = "2"
 
 # CLI
 clap = { version = "4", features = ["derive"], optional = true }
 
 # File-based storage
 dirs = "6"
-
-# UUID for memory entries
-uuid = { version = "1", features = ["v4"] }
-
-# Timestamps
-chrono = { version = "0.4", features = ["serde"] }
 
 # ONNX runtime for Silero VAD (optional, feature-gated)
 vad-rs = { git = "https://github.com/cjpais/vad-rs", default-features = false, optional = true }
