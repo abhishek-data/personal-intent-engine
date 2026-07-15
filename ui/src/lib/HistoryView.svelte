@@ -9,6 +9,7 @@
   let searchTimer;
 
   async function refresh() {
+    error = "";
     try {
       entries = await invoke("list_history", { query: query || null });
     } catch (e) { error = String(e); }
@@ -20,22 +21,26 @@
   }
 
   async function copy(text) {
+    error = "";
     try { await invoke("copy_to_clipboard", { text }); }
     catch (e) { error = String(e); }
   }
 
   async function paste(id) {
+    error = "";
     try { await invoke("paste_history_entry", { id }); }
     catch (e) { error = String(e); }
   }
 
   async function remove(id) {
+    error = "";
     try { await invoke("delete_history_entry", { id }); await refresh(); }
     catch (e) { error = String(e); }
   }
 
   async function clearAll() {
     if (!confirm("Delete all history?")) return;
+    error = "";
     try { await invoke("clear_history"); await refresh(); }
     catch (e) { error = String(e); }
   }
@@ -51,8 +56,15 @@
   onMount(() => {
     refresh();
     let unlisten;
-    listen("pie://history-changed", () => refresh()).then((u) => { unlisten = u; });
-    return () => { if (unlisten) unlisten(); };
+    let disposed = false;
+    listen("pie://history-changed", () => refresh()).then((u) => {
+      if (disposed) u(); else unlisten = u;
+    });
+    return () => {
+      disposed = true;
+      if (unlisten) unlisten();
+      clearTimeout(searchTimer);
+    };
   });
 </script>
 
