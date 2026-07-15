@@ -218,17 +218,22 @@ fn on_hotkey(app: &AppHandle) {
     });
 }
 
-/// (Re-)register the global shortcut from settings. Returns a description of
-/// what's active so callers can surface registration problems.
+/// (Re-)register the global shortcut from settings. An empty string disables
+/// the hotkey. The string is parsed *before* the current shortcut is
+/// unregistered, so an invalid combo returns an error and leaves the working
+/// hotkey intact.
 fn register_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     let shortcuts = app.global_shortcut();
-    shortcuts.unregister_all().map_err(|e| e.to_string())?;
-    if hotkey.trim().is_empty() {
-        return Ok(()); // hotkey disabled
+    let trimmed = hotkey.trim();
+    if trimmed.is_empty() {
+        shortcuts.unregister_all().map_err(|e| e.to_string())?;
+        log::info!("Global hotkey disabled");
+        return Ok(());
     }
-    let shortcut: Shortcut = hotkey
+    let shortcut: Shortcut = trimmed
         .parse()
         .map_err(|e| format!("Invalid hotkey '{hotkey}': {e}"))?;
+    shortcuts.unregister_all().map_err(|e| e.to_string())?;
     shortcuts
         .on_shortcut(shortcut, move |app, fired, event| {
             // Only the registered shortcut reaches here; log at debug for
@@ -256,19 +261,35 @@ fn update_settings(
     state: State<'_, AppState>,
     settings: Settings,
 ) -> Result<(), String> {
-    settings.save().map_err(|e| e.to_string())?;
     let hotkey_changed = {
-        let mut current = state.settings.lock().expect("settings poisoned");
-        let changed = current.hotkey != settings.hotkey;
-        *current = settings.clone();
-        changed
+        let current = state.settings.lock().expect("settings poisoned");
+        current.hotkey != settings.hotkey
     };
-    // The whisper cache checks (path, language) on next use, so a model or
-    // language change reloads naturally — only the hotkey needs re-wiring.
+    // Register the new hotkey BEFORE persisting: if it's invalid, we return the
+    // error without saving a broken binding (and the old one stays active).
+    // The whisper cache checks (path, language) on next use, so model/language
+    // changes reload naturally — only the hotkey needs re-wiring.
     if hotkey_changed {
         register_hotkey(&app, &settings.hotkey)?;
     }
+    settings.save().map_err(|e| e.to_string())?;
+    *state.settings.lock().expect("settings poisoned") = settings;
     Ok(())
+}
+
+/// Suspend (active=false) or restore (active=true) the global hotkey. The
+/// Settings shortcut recorder suspends it while capturing so the current
+/// binding doesn't fire on the keys being pressed to choose a new one.
+#[tauri::command]
+fn set_hotkey_active(app: AppHandle, state: State<'_, AppState>, active: bool) -> Result<(), String> {
+    if active {
+        let hotkey = state.settings.lock().expect("settings poisoned").hotkey.clone();
+        register_hotkey(&app, &hotkey)
+    } else {
+        app.global_shortcut()
+            .unregister_all()
+            .map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
@@ -544,6 +565,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             update_settings,
+            set_hotkey_active,
             start_recording,
             stop_recording,
             cancel_recording,
@@ -554,4 +576,28 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running PIE");
+}
+
+#[cfg(test)]
+mod tests {
+    use tauri_plugin_global_shortcut::Shortcut;
+
+    /// The recorder builds accelerators from modifier names + `event.code`.
+    /// Every shape it can produce must parse, or a captured hotkey would fail
+    /// to register.
+    #[test]
+    fn recorder_accelerators_parse() {
+        let cases = [
+            "Command+Shift+Space",
+            "Control+Alt+KeyK",
+            "Command+KeyL",
+            "Command+Digit1",
+            "Shift+ArrowUp",
+            "F5",
+            "CmdOrCtrl+Shift+Space", // the default
+        ];
+        for a in cases {
+            assert!(a.parse::<Shortcut>().is_ok(), "should parse: {a}");
+        }
+    }
 }

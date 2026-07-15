@@ -61,6 +61,86 @@
     }
   }
 
+  // ── Global hotkey recorder ──
+  // Click "Change", press a combo; we read event.code + modifiers (which the
+  // Tauri shortcut parser accepts verbatim) and save it. The current binding
+  // is suspended while capturing so it doesn't fire on the keys being chosen.
+  let capturingHotkey = $state(false);
+  const MODIFIER_CODES = [
+    "MetaLeft", "MetaRight", "ControlLeft", "ControlRight",
+    "AltLeft", "AltRight", "ShiftLeft", "ShiftRight", "CapsLock",
+  ];
+
+  async function beginCaptureHotkey() {
+    error = "";
+    try {
+      await invoke("set_hotkey_active", { active: false });
+      capturingHotkey = true;
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function endCapture(newHotkey) {
+    capturingHotkey = false;
+    if (newHotkey === null) {
+      // Cancelled: restore the existing binding.
+      await invoke("set_hotkey_active", { active: true }).catch(() => {});
+      return;
+    }
+    settings.hotkey = newHotkey;
+    await save(); // update_settings re-registers the new hotkey
+  }
+
+  function onHotkeyCapture(e) {
+    if (!capturingHotkey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.code === "Escape") return endCapture(null);
+    if (MODIFIER_CODES.includes(e.code)) return; // wait for a real key
+    if (!e.code || e.code === "Unidentified") return;
+
+    const mods = [];
+    if (e.metaKey) mods.push("Command");
+    if (e.ctrlKey) mods.push("Control");
+    if (e.altKey) mods.push("Alt");
+    if (e.shiftKey) mods.push("Shift");
+
+    const isFunctionKey = /^F\d{1,2}$/.test(e.code);
+    // A global shortcut with no modifier fires on every plain keypress
+    // system-wide — only allow it for function keys.
+    if (mods.length === 0 && !isFunctionKey) return;
+
+    endCapture([...mods, e.code].join("+"));
+  }
+
+  function resetHotkey() {
+    settings.hotkey = "CmdOrCtrl+Shift+Space";
+    save();
+  }
+
+  function disableHotkey() {
+    settings.hotkey = "";
+    save();
+  }
+
+  // Turn a stored accelerator into display keycaps (⌘ ⇧ Space, etc.).
+  const CAP_SYMBOLS = {
+    Command: "⌘", Cmd: "⌘", CmdOrCtrl: "⌘", CommandOrControl: "⌘",
+    Super: "⌘", Meta: "⌘", Control: "⌃", Ctrl: "⌃", Alt: "⌥",
+    Option: "⌥", Shift: "⇧",
+  };
+  const ARROW_SYMBOLS = { ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" };
+  function keycaps(accel) {
+    return accel.split("+").map((t) => {
+      if (CAP_SYMBOLS[t]) return CAP_SYMBOLS[t];
+      if (t.startsWith("Key")) return t.slice(3);
+      if (t.startsWith("Digit")) return t.slice(5);
+      if (ARROW_SYMBOLS[t]) return ARROW_SYMBOLS[t];
+      return t;
+    });
+  }
+
   onMount(async () => {
     try {
       settings = await invoke("get_settings");
@@ -177,6 +257,8 @@
   ];
   const sectionTitle = $derived(nav.find((n) => n.id === view)?.label ?? "");
 </script>
+
+<svelte:window onkeydown={onHotkeyCapture} />
 
 <!-- Inline stroke icons (no icon font, no network) -->
 {#snippet icon(name)}
@@ -495,18 +577,44 @@
         {#if view === "shortcut"}
           <section class="group">
             <div class="field">
-              <label for="hotkey">Global hotkey</label>
-              <input
-                id="hotkey"
-                bind:value={settings.hotkey}
-                onblur={save}
-                placeholder="CmdOrCtrl+Shift+Space"
-              />
-              <p class="caption">
-                Press it in any app to start recording; press again to stop and
-                paste. Leave empty to disable. First use needs Accessibility
-                permission on macOS.
-              </p>
+              <span class="field-label">Global hotkey</span>
+              <div class="hotkey-row">
+                <div class="hotkey-display" class:capturing={capturingHotkey}>
+                  {#if capturingHotkey}
+                    <span class="capture-hint">Press a combo…</span>
+                  {:else if settings.hotkey}
+                    {#each keycaps(settings.hotkey) as cap}
+                      <kbd>{cap}</kbd>
+                    {/each}
+                  {:else}
+                    <span class="muted">Disabled</span>
+                  {/if}
+                </div>
+                {#if capturingHotkey}
+                  <button class="btn ghost" onclick={() => endCapture(null)}>
+                    Cancel
+                  </button>
+                {:else}
+                  <button class="btn" onclick={beginCaptureHotkey}>Change</button>
+                {/if}
+              </div>
+              {#if capturingHotkey}
+                <p class="caption">
+                  Press the keys you want, e.g. <kbd>⌘</kbd><kbd>⇧</kbd>Space.
+                  <kbd>Esc</kbd> cancels.
+                </p>
+              {:else}
+                <div class="hotkey-actions">
+                  <button class="text-btn" onclick={resetHotkey}>
+                    Reset to default
+                  </button>
+                  <button class="text-btn" onclick={disableHotkey}>Disable</button>
+                </div>
+                <p class="caption">
+                  Press it in any app to start recording; press again to stop
+                  and paste. First use needs Accessibility permission on macOS.
+                </p>
+              {/if}
             </div>
           </section>
         {/if}
@@ -1034,6 +1142,40 @@
   }
   .disclosure summary:hover {
     color: var(--text);
+  }
+
+  /* ── hotkey recorder ── */
+  .hotkey-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .hotkey-display {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 40px;
+    padding: 0 0.7rem;
+    background: #0e0f13;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .hotkey-display.capturing {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+  .hotkey-display kbd {
+    min-width: 1.4rem;
+    text-align: center;
+  }
+  .capture-hint {
+    color: var(--accent-hi);
+    font-size: 0.82rem;
+  }
+  .hotkey-actions {
+    display: flex;
+    gap: 1rem;
   }
 
   /* ── segmented control ── */
