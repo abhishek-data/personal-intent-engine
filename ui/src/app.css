@@ -391,15 +391,11 @@ html, body {
 
 /* ─── Hotkey Recorder ─── */
 .hotkey-display {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-}
-.keycaps {
-  display: flex;
   gap: 3px;
 }
-.keycap {
+.hotkey-display kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -410,13 +406,26 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--fg);
 }
-.capturing {
+.hotkey-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.hotkey-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+.capture-hint {
+  font-size: 13px;
   color: var(--accent);
-  font-size: 12px;
   animation: blink 1s ease-in-out infinite;
+}
+.hotkey-display.capturing {
+  color: var(--accent);
 }
 
 /* ─── Error Banner ─── */
