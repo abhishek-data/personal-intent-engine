@@ -117,10 +117,11 @@ impl HistoryStore {
     }
 
     fn prune(&self, limit: usize) -> Result<()> {
+        let limit = limit.max(1) as i64;
         self.conn.execute(
             "DELETE FROM history
              WHERE id NOT IN (SELECT id FROM history ORDER BY id DESC LIMIT ?1)",
-            params![limit as i64],
+            params![limit],
         )?;
         Ok(())
     }
@@ -277,5 +278,58 @@ mod tests {
         // Running the migration again must not error or wipe data.
         store.migrate().unwrap();
         assert_eq!(store.count().unwrap(), 1);
+    }
+
+    /// Guards the `add` -> `map_row` column ordering: every field on a fully
+    /// populated entry must round-trip through insert + list unchanged.
+    #[test]
+    fn full_entry_round_trips_all_fields() {
+        let store = HistoryStore::open_in_memory().unwrap();
+        let new_entry = NewEntry {
+            transcript: "full round trip".to_string(),
+            objective: Some("objective text".to_string()),
+            conversation_type: Some("Question".to_string()),
+            confidence: Some("High".to_string()),
+            optimized_prompt: Some("optimized prompt text".to_string()),
+            estimated_tokens: Some(42),
+            mode: Some("Fast".to_string()),
+            language: Some("en".to_string()),
+        };
+        store.add(new_entry, 10).unwrap();
+
+        let all = store.list(None, 10).unwrap();
+        assert_eq!(all.len(), 1);
+        let got = &all[0];
+        assert_eq!(got.transcript, "full round trip");
+        assert_eq!(got.objective.as_deref(), Some("objective text"));
+        assert_eq!(got.conversation_type.as_deref(), Some("Question"));
+        assert_eq!(got.confidence.as_deref(), Some("High"));
+        assert_eq!(got.optimized_prompt.as_deref(), Some("optimized prompt text"));
+        assert_eq!(got.estimated_tokens, Some(42));
+        assert_eq!(got.mode.as_deref(), Some("Fast"));
+        assert_eq!(got.language.as_deref(), Some("en"));
+    }
+
+    #[test]
+    fn zero_limit_keeps_at_least_one_row() {
+        let store = HistoryStore::open_in_memory().unwrap();
+        store.add(entry("row"), 0).unwrap();
+        assert_eq!(store.count().unwrap(), 1);
+    }
+
+    #[test]
+    fn persists_across_reopen() {
+        let path = std::env::temp_dir().join(format!("pie-hist-test-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            let store = HistoryStore::open(&path).unwrap();
+            store.add(entry("persisted"), 10).unwrap();
+        }
+        {
+            let store = HistoryStore::open(&path).unwrap();
+            assert_eq!(store.count().unwrap(), 1);
+            assert_eq!(store.list(None, 10).unwrap()[0].transcript, "persisted");
+        }
+        let _ = std::fs::remove_file(&path);
     }
 }

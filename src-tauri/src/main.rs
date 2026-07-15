@@ -168,6 +168,7 @@ async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Ou
         .process(&transcript, &settings.mode)
         .await
         .map_err(|e| e.to_string())?;
+    drop(engine);
 
     let outcome = Outcome {
         transcript,
