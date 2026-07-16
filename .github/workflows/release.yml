@@ -36,6 +36,9 @@ jobs:
         working-directory: ui
         run: npm install
 
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
       - name: Build frontend
         working-directory: ui
         run: npm run build
