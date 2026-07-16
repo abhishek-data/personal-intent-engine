@@ -56,6 +56,14 @@
     } catch (e) { error = String(e); }
   }
 
+  async function deleteModel(id) {
+    error = "";
+    try {
+      await invoke("delete_model", { id });
+      await loadModels();
+    } catch (e) { error = String(e); }
+  }
+
   async function save() {
     try {
       await invoke("update_settings", { settings });
@@ -198,6 +206,7 @@
       {settings}
       onDownload={downloadModel}
       onSelect={selectModel}
+      onDelete={deleteModel}
       onSave={save}
       onReloadModels={loadModels}
     />

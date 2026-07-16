@@ -413,6 +413,32 @@ fn select_model(app: AppHandle, state: State<'_, AppState>, id: String) -> Resul
     Ok(())
 }
 
+/// Delete a downloaded model file. Refuses if the model is currently selected.
+#[tauri::command]
+fn delete_model(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let (kind, _url, path) = models::resolve(&id).ok_or("Unknown model")?;
+    if !path.exists() {
+        return Err("Model isn't downloaded".to_string());
+    }
+
+    // Block deletion of the active model.
+    let settings = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+    let selected_path = match kind {
+        models::ModelKind::Whisper => Settings::expand(&settings.whisper_model),
+        models::ModelKind::Vad => Settings::expand(&settings.silero_model),
+    };
+    if selected_path == path {
+        return Err("Can't delete the model currently in use".to_string());
+    }
+    drop(settings);
+
+    std::fs::remove_file(&path)
+        .map_err(|e| format!("Failed to delete {}: {e}", path.display()))?;
+    log::info!("Deleted model: {}", path.display());
+    emit_event(&app, "pie://models-changed", ());
+    Ok(())
+}
+
 /// Stream a catalog model to disk, emitting `pie://download` progress. On
 /// success, auto-selects it so it's ready to use.
 #[tauri::command]
@@ -740,6 +766,7 @@ fn main() {
             paste_history_entry,
             list_models,
             select_model,
+            delete_model,
             download_model,
         ])
         .run(tauri::generate_context!())

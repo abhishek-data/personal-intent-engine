@@ -492,6 +492,9 @@ html, body {
   margin-left: var(--space-2);
 }
 .model-action { display: flex; align-items: center; gap: var(--space-2); }
+.model-actions-row { display: flex; align-items: center; gap: 4px; }
+.delete-btn { padding: 5px 8px !important; display: flex; align-items: center; justify-content: center; }
+.delete-btn:hover { color: var(--danger) !important; border-color: var(--danger) !important; }
 
 .progress {
   width: 64px;

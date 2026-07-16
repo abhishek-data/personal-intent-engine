@@ -1,5 +1,5 @@
 <script>
-  let { models, downloads, settings, onDownload, onSelect, onSave, onReloadModels } = $props();
+  let { models, downloads, settings, onDownload, onSelect, onDelete, onSave, onReloadModels } = $props();
   let showCustomPaths = $state(false);
 </script>
 
@@ -25,7 +25,14 @@
       {:else if m.selected}
         <button class="btn ghost sm" disabled>Selected</button>
       {:else}
-        <button class="btn sm" onclick={() => onSelect(m.id)} aria-label="Use {m.name}">Use</button>
+        <div class="model-actions-row">
+          <button class="btn sm" onclick={() => onSelect(m.id)} aria-label="Use {m.name}">Use</button>
+          <button class="btn ghost sm delete-btn" onclick={() => onDelete(m.id)} aria-label="Delete {m.name}" title="Delete model">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+              <path d="M2.5 4.5h11M5.5 4.5V3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1.5M6.5 7v4.5M9.5 7v4.5M3.5 4.5l.7 8.1a1.5 1.5 0 0 0 1.5 1.4h4.6a1.5 1.5 0 0 0 1.5-1.4l.7-8.1"/>
+            </svg>
+          </button>
+        </div>
       {/if}
     </div>
   </div>
