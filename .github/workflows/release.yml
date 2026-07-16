@@ -36,50 +36,18 @@ jobs:
         working-directory: ui
         run: npm install
 
-      - name: Install Tauri CLI
-        run: npm install -g @tauri-apps/cli
-
-      - name: Build frontend
-        working-directory: ui
-        run: npm run build
-
-      - name: Build Tauri app
-        run: cargo tauri build
-
-      # Ad-hoc sign the macOS .app so Gatekeeper shows "unidentified developer"
-      # (which gives an "Open Anyway" button) instead of "damaged" (which blocks).
-      - name: Ad-hoc sign macOS app
-        if: runner.os == 'macOS'
-        run: |
-          APP_PATH="src-tauri/target/release/bundle/macos/PIE.app"
-          if [ -d "$APP_PATH" ]; then
-            codesign --force --deep --sign - "$APP_PATH"
-            echo "Ad-hoc signed $APP_PATH"
-          fi
-
-      - name: Collect release artifacts
-        run: |
-          mkdir -p artifacts
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            # Create DMG from the signed .app
-            APP_PATH="src-tauri/target/release/bundle/macos/PIE.app"
-            DMG_PATH="artifacts/PIE.dmg"
-            hdiutil create -volname "PIE" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH"
-            # Also copy the .app
-            cp -R "$APP_PATH" artifacts/
-          elif [ "$RUNNER_OS" == "Windows" ]; then
-            cp src-tauri/target/release/bundle/msi/*.msi artifacts/ 2>/dev/null || true
-            cp src-tauri/target/release/bundle/nsis/*.exe artifacts/ 2>/dev/null || true
-          fi
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: 'PIE ${{ github.ref_name }}'
-          body: 'Download the installer for your platform below.\n\n**macOS:** Open the .dmg and drag PIE to Applications. Right-click → Open the first time.\n\n**Windows:** Run the .exe installer. Click "More info → Run anyway" if SmartScreen warns.'
-          draft: true
-          prerelease: true
-          files: artifacts/*
+      # tauri-action installs the Tauri CLI, builds the frontend + app, bundles
+      # the .dmg / .exe, and uploads them to a GitHub release. The macOS app is
+      # ad-hoc signed during the build (bundle.macOS.signingIdentity = "-" in
+      # tauri.conf.json) so Gatekeeper shows "unidentified developer" (openable
+      # via right-click → Open) instead of "damaged" (which blocks entirely).
+      - name: Build app and publish release
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'PIE ${{ github.ref_name }}'
+          releaseBody: 'Download the installer for your platform below. Builds are unsigned (ad-hoc only) — macOS: right-click the app and choose Open the first time. Windows: click "More info → Run anyway" if SmartScreen warns.'
+          releaseDraft: true
+          prerelease: true
