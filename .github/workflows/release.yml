@@ -31,6 +31,8 @@ jobs:
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ hashFiles('src-tauri/icons/**') }}
 
       - name: Install frontend dependencies
         working-directory: ui
