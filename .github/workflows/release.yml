@@ -76,7 +76,7 @@ jobs:
           name: 'PIE ${{ github.ref_name }}'
           body: 'Download the installer for your platform below.\n\n**macOS:** Open the .dmg and drag PIE to Applications. Right-click → Open the first time.\n\n**Windows:** Run the .exe installer. Click "More info → Run anyway" if SmartScreen warns.'
           draft: true
-          prerelease: false
+          prerelease: true
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
