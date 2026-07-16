@@ -40,7 +40,8 @@ jobs:
       # the .dmg / .exe, and uploads them to a GitHub release. The macOS app is
       # ad-hoc signed during the build (bundle.macOS.signingIdentity = "-" in
       # tauri.conf.json) so Gatekeeper shows "unidentified developer" (openable
-      # via right-click → Open) instead of "damaged" (which blocks entirely).
+      # via right-click → Open, or skipped by the install script's xattr strip)
+      # instead of "damaged" (which blocks entirely).
       - name: Build app and publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -48,6 +49,44 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'PIE ${{ github.ref_name }}'
-          releaseBody: 'Download the installer for your platform below. Builds are unsigned (ad-hoc only) — macOS: right-click the app and choose Open the first time. Windows: click "More info → Run anyway" if SmartScreen warns.'
+          # The macOS app is ad-hoc signed (no Apple Developer ID), so Gatekeeper
+          # blocks it on first launch. The one-line install script handles the
+          # xattr -cr quarantine strip automatically; manual DMG users must run it.
+          releaseBody: |
+            ## Install
+
+            ### macOS (Apple Silicon) — one line
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/abhishek-data/personal-intent-engine/main/scripts/install.sh | bash
+            ```
+
+            Downloads the DMG, installs PIE to /Applications, and strips the Gatekeeper quarantine attribute so it opens without any prompts.
+
+            ### Homebrew
+
+            ```bash
+            brew tap abhishek-data/pie https://github.com/abhishek-data/homebrew-pie
+            brew install --cask abhishek-data/pie/pie
+            xattr -cr /Applications/PIE.app
+            ```
+
+            ### Manual DMG
+
+            Download the `.dmg` below, drag PIE to Applications, then run:
+
+            ```bash
+            xattr -cr /Applications/PIE.app
+            ```
+
+            (Or right-click PIE → Open the first time and confirm at the Gatekeeper prompt.)
+
+            ### Windows
+
+            Run the `.exe` installer below. If SmartScreen warns, click **More info → Run anyway**.
+
+            ---
+
+            Builds are unsigned (ad-hoc only). On first run, grant **Microphone** and **Accessibility** permission (Accessibility is needed to paste the prompt at your cursor).
           releaseDraft: true
           prerelease: true

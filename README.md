@@ -60,12 +60,44 @@ Most people type rambling, half-formed requests into ChatGPT. PIE fixes that at 
 
 ## Installation
 
-Download the latest installer from the [releases page](https://github.com/abhishek-data/personal-intent-engine/releases):
+PIE is currently distributed as **unsigned (ad-hoc signed)** builds — there is no Apple Developer ID, so macOS Gatekeeper would normally block the app on first launch. The install methods below handle that for you automatically.
 
-- **macOS** — download the `.dmg`, open it, and drag PIE to Applications. The build is currently unsigned, so the first time you launch it, right-click the app and choose **Open** to get past Gatekeeper.
-- **Windows** — download and run the `.exe` installer. Windows SmartScreen may warn about an unrecognized app; click **More info → Run anyway**.
+### macOS (Apple Silicon) — recommended
 
-> Builds are not yet code-signed or notarized. Homebrew cask / winget packages may follow once signed releases are available.
+**One-line install** (downloads the latest release, installs to `/Applications`, and strips the Gatekeeper quarantine attribute so PIE opens without any prompts):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/abhishek-data/personal-intent-engine/main/scripts/install.sh | bash
+```
+
+> Prefer to review the script first? Download it, read it, then run it:
+> ```bash
+curl -fsSL https://raw.githubusercontent.com/abhishek-data/personal-intent-engine/main/scripts/install.sh -o install.sh
+less install.sh && bash install.sh
+```
+
+**Homebrew** (for Homebrew users):
+
+```bash
+brew tap abhishek-data/pie https://github.com/abhishek-data/homebrew-pie
+brew install --cask abhishek-data/pie/pie
+# the app is ad-hoc signed, so strip the quarantine attribute after install:
+xattr -cr /Applications/PIE.app
+```
+
+**Manual DMG** — download `PIE_<version>_aarch64.dmg` from the [releases page](https://github.com/abhishek-data/personal-intent-engine/releases), drag PIE to Applications, then strip the quarantine attribute:
+
+```bash
+xattr -cr /Applications/PIE.app
+```
+
+(Without that, right-click PIE in Applications → **Open** the first time, then confirm at the Gatekeeper prompt.)
+
+### Windows
+
+Download and run the `.exe` installer from the [releases page](https://github.com/abhishek-data/personal-intent-engine/releases). Windows SmartScreen may warn about an unrecognized app; click **More info → Run anyway**.
+
+> Builds are not yet code-signed or notarized. Proper Developer ID signing + notarization may follow; until then the install methods above bypass Gatekeeper for you.
 
 Prefer to build it yourself? See [Quick start](#quick-start-desktop-app) below.
 
@@ -116,7 +148,11 @@ cargo tauri build
 # → src-tauri/target/release/bundle/macos/PIE.app
 ```
 
-Drag `PIE.app` to `/Applications`. As a real app it gets its own Microphone and Accessibility permissions listed under "PIE" (no Terminal involved). The build is unsigned, so the first launch needs right-click → **Open**.
+Drag `PIE.app` to `/Applications`. As a real app it gets its own Microphone and Accessibility permissions listed under "PIE" (no Terminal involved). The build is unsigned, so strip the quarantine attribute (or right-click → **Open** the first time):
+
+```bash
+xattr -cr /Applications/PIE.app
+```
 
 ## CLI
 
