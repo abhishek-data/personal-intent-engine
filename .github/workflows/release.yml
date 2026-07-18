@@ -36,16 +36,47 @@ jobs:
         working-directory: ui
         run: npm install
 
+      # Import the self-signed code-signing certificate into a temporary keychain
+      # so the macOS app is signed with a STABLE identity ("PIE Developers")
+      # instead of ad-hoc. A stable signing identity is what lets macOS TCC keep
+      # the Accessibility/Microphone grants across app updates — ad-hoc builds
+      # change identity every version and force the user to re-grant every time.
+      # This is self-signed (not an Apple Developer ID), so it does NOT notarize;
+      # Gatekeeper still shows the "unverified" prompt on first download (handled
+      # by the install script's xattr strip or "Open Anyway").
+      - name: Import macOS signing certificate
+        if: matrix.platform == 'macos-14'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/pie-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          CERT_PATH="$RUNNER_TEMP/pie-cert.p12"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERT_PATH" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -A
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # Prepend our keychain to the user search list so codesign finds the identity.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/[" ]//g')
+          rm -f "$CERT_PATH"
+          echo "Signing identities available:"
+          security find-identity -v "$KEYCHAIN" || true
+
       # tauri-action installs the Tauri CLI, builds the frontend + app, bundles
-      # the .dmg / .exe, and uploads them to a GitHub release. The macOS app is
-      # ad-hoc signed during the build (bundle.macOS.signingIdentity = "-" in
-      # tauri.conf.json) so Gatekeeper shows "unidentified developer" (openable
-      # via right-click → Open, or skipped by the install script's xattr strip)
-      # instead of "damaged" (which blocks entirely).
+      # the .dmg / .exe, and uploads them to a GitHub release. On macOS,
+      # APPLE_SIGNING_IDENTITY overrides tauri.conf.json's signingIdentity ("-")
+      # so the build signs with the imported "PIE Developers" cert. On Windows
+      # the variable is ignored. Notarization env (APPLE_ID/APPLE_PASSWORD) is
+      # intentionally unset — this is a self-signed, non-notarized distribution.
       - name: Build app and publish release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: PIE Developers
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'PIE ${{ github.ref_name }}'
