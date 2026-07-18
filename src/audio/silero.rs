@@ -6,7 +6,7 @@ use vad_rs::Vad;
 use super::vad::{VadFrame, VoiceActivityDetector};
 use super::{FRAME_SAMPLES, WHISPER_SAMPLE_RATE};
 
-/// Default speech probability threshold, matching Handy's tuning.
+/// Default speech probability threshold, empirically tuned for speech detection.
 pub const SILERO_DEFAULT_THRESHOLD: f32 = 0.3;
 
 /// Silero VAD (ONNX) — a small recurrent model that classifies 30 ms frames

@@ -34,15 +34,15 @@ pub enum VadPolicy {
     Streaming,
 }
 
-// VAD timing constants (in 30ms frames), matching Handy's current tuning.
+// VAD timing constants (in 30ms frames), tuned for 30ms frames at 16kHz.
 pub const VAD_PREFILL_FRAMES: usize = 15; // 450ms pre-speech context
 pub const VAD_OFFLINE_HANGOVER_FRAMES: usize = 15; // 450ms post-speech
 pub const VAD_STREAMING_HANGOVER_FRAMES: usize = 55; // 1.65s for streaming
 pub const VAD_ONSET_FRAMES: usize = 2; // 60ms onset detection
 
-/// Smoothed VAD wrapper with onset detection, hangover tail, and prefill buffering.
+/// Smoothed VAD with onset detection, hangover tail, and prefill buffering.
 ///
-/// Based on Handy's SmoothedVad architecture:
+/// Wraps a frame-level detector and:
 /// - Buffers pre-speech frames for context
 /// - Requires N consecutive voice frames before triggering speech
 /// - Continues forwarding after speech ends (hangover tail)

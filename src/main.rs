@@ -296,7 +296,7 @@ fn build_recorder(args: &Args) -> anyhow::Result<(pie_engine::audio::AudioRecord
             eprintln!(
                 "No Silero VAD model found; recording without VAD. \
                  Download one:\n  curl -L -o ~/.cache/pie/models/silero_vad_v4.onnx \
-                 https://blob.handy.computer/silero_vad_v4.onnx"
+                 https://github.com/snakers4/silero-vad/raw/v4.0/files/silero_vad.onnx"
             );
             Ok((pie_engine::audio::AudioRecorder::new()?, false))
         }

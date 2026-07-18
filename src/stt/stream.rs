@@ -24,8 +24,8 @@ pub enum StreamCmd {
 /// Shared between the session owner (opens/closes the route) and the audio
 /// recorder's per-frame callback (feeds frames). The recorder holds an
 /// `Arc<StreamRouter>` directly, so a frame with no stream pending costs a
-/// single relaxed atomic load — no mutex lock. (Handy's zero-overhead feed
-/// pattern; the atomic-first check is the point, don't reorder it.)
+/// single relaxed atomic load — no mutex lock. (zero-overhead feed pattern;
+/// the atomic-first check is the point, don't reorder it.)
 pub struct StreamRouter {
     /// Command channel to the active streaming worker.
     tx: Mutex<Option<mpsc::Sender<StreamCmd>>>,

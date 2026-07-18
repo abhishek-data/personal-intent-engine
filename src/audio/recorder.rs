@@ -56,7 +56,7 @@ pub type AudioFrameCallback = Arc<dyn Fn(&[f32]) + Send + Sync + 'static>;
 /// callback, resamples to 16 kHz, applies VAD filtering, and provides both
 /// buffered and streaming output.
 ///
-/// Architecture based on Handy's recorder:
+/// Audio recorder: opens device, streams frames through VAD, collects samples.
 /// - Dedicated worker thread; channel-based communication
 /// - Stream plays continuously; a `recording` flag gates capture so no
 ///   audio is lost around start/stop transitions
