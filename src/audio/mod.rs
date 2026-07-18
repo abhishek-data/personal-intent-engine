@@ -2,6 +2,8 @@ pub mod recorder;
 pub mod resampler;
 #[cfg(feature = "vad")]
 pub mod silero;
+#[cfg(feature = "vad")]
+pub mod silero_vad_engine;
 pub mod vad;
 
 /// Audio capture configuration

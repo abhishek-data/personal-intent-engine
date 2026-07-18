@@ -50,8 +50,10 @@ dirs = "6"
 # Local SQLite store for transcription history (bundled = no system dep).
 rusqlite = { version = "0.32", features = ["bundled"] }
 
-# ONNX runtime for Silero VAD (optional, feature-gated)
-vad-rs = { git = "https://github.com/cjpais/vad-rs", default-features = false, optional = true }
+# ONNX runtime + ndarray for the vendored Silero VAD engine (see
+# src/audio/silero_vad_engine.rs). Optional, feature-gated.
+ort = { version = "=2.0.0-rc.12", optional = true }
+ndarray = { version = "0.17", optional = true }
 
 # WAV file reading for the CLI's --audio-file input (whisper feature only)
 hound = { version = "3", optional = true }
@@ -68,7 +70,7 @@ transcribe-cpp = { version = "0.1.3", default-features = false, optional = true 
 default = ["cli"]
 cli = ["dep:clap"]
 whisper = ["dep:transcribe-cpp", "dep:hound"]
-vad = ["dep:vad-rs"]
+vad = ["dep:ort", "dep:ndarray"]
 
 [profile.release]
 opt-level = 3
