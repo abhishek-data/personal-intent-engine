@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod models;
+#[cfg(target_os = "macos")]
+mod nspanel;
 mod overlay;
 mod paste;
 mod settings;
@@ -665,11 +667,8 @@ fn main() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build());
-    // macOS overlay is an NSPanel (see overlay.rs) — needs the nspanel plugin.
-    #[cfg(target_os = "macos")]
-    {
-        builder = builder.plugin(tauri_nspanel::init());
-    }
+    // macOS overlay is an NSPanel created directly in overlay.rs (see the
+    // vendored nspanel module) — no external plugin needed.
 
     builder
         .setup(|app| {

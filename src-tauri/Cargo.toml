@@ -31,6 +31,9 @@ pie-engine = { path = "..", default-features = false, features = ["whisper", "va
 
 # macOS: the recording overlay must float over other apps without stealing
 # focus (a plain always-on-top window either won't show or grabs focus and
-# breaks paste). NSPanel with a non-activating style is the reliable path.
+# breaks paste). We create an NSPanel with a non-activating style directly via
+# objc2 (see src/nspanel.rs), so PIE owns this code with no external plugin.
 [target.'cfg(target_os = "macos")'.dependencies]
-tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
+objc2 = "0.6"
+objc2-app-kit = "0.3"
+objc2-foundation = "0.3"
