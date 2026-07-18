@@ -180,12 +180,12 @@ fn load_audio_file(path: &std::path::Path) -> anyhow::Result<Vec<f32>> {
 #[cfg(feature = "whisper")]
 fn voice_session(args: &Args) -> anyhow::Result<String> {
     use pie_engine::audio::VadPolicy;
-    use pie_engine::stt::{StreamRouter, SttEngine};
+    use pie_engine::stt::{TranscriptRouter, SttEngine};
     use std::sync::Arc;
 
     let engine = build_whisper_engine(args)?;
     let use_streaming = engine.supports_streaming();
-    let router = Arc::new(StreamRouter::new());
+    let router = Arc::new(TranscriptRouter::new());
 
     let (recorder, vad_active) = build_recorder(args)?;
     let mut recorder = if use_streaming {
@@ -259,9 +259,9 @@ fn voice_session(args: &Args) -> anyhow::Result<String> {
 #[cfg(all(feature = "whisper", feature = "vad"))]
 fn build_recorder(args: &Args) -> anyhow::Result<(pie_engine::audio::AudioRecorder, bool)> {
     use pie_engine::audio::{
-        AudioRecorder, SileroVad, SmoothedVad, SILERO_DEFAULT_THRESHOLD,
-        VAD_OFFLINE_HANGOVER_FRAMES, VAD_ONSET_FRAMES, VAD_PREFILL_FRAMES,
-        VAD_STREAMING_HANGOVER_FRAMES,
+        AudioRecorder, SileroVad, VadPipeline, PIE_VAD_THRESHOLD,
+        VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES, VAD_CONTEXT_FRAMES,
+        VAD_STREAM_HANGOVER_FRAMES,
     };
 
     let model_path = args
@@ -278,17 +278,17 @@ fn build_recorder(args: &Args) -> anyhow::Result<(pie_engine::audio::AudioRecord
 
     match model_path {
         Some(path) => {
-            let silero = SileroVad::new(&path, SILERO_DEFAULT_THRESHOLD)?;
-            let smoothed = SmoothedVad::new(
+            let silero = SileroVad::new(&path, PIE_VAD_THRESHOLD)?;
+            let smoothed = VadPipeline::new(
                 Box::new(silero),
-                VAD_PREFILL_FRAMES,
-                VAD_OFFLINE_HANGOVER_FRAMES,
-                VAD_ONSET_FRAMES,
+                VAD_CONTEXT_FRAMES,
+                VAD_HANGOVER_FRAMES,
+                VAD_SPEECH_THRESHOLD_FRAMES,
             );
             let recorder = AudioRecorder::new()?.with_vad(
                 Box::new(smoothed),
-                VAD_OFFLINE_HANGOVER_FRAMES,
-                VAD_STREAMING_HANGOVER_FRAMES,
+                VAD_HANGOVER_FRAMES,
+                VAD_STREAM_HANGOVER_FRAMES,
             );
             Ok((recorder, true))
         }

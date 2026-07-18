@@ -19,9 +19,9 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use paste::EnigoState;
 use pie_engine::audio::{
-    AudioRecorder, SileroVad, SmoothedVad, VadPolicy, SILERO_DEFAULT_THRESHOLD,
-    VAD_OFFLINE_HANGOVER_FRAMES, VAD_ONSET_FRAMES, VAD_PREFILL_FRAMES,
-    VAD_STREAMING_HANGOVER_FRAMES,
+    AudioRecorder, SileroVad, VadPipeline, VadPolicy, PIE_VAD_THRESHOLD,
+    VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES, VAD_CONTEXT_FRAMES,
+    VAD_STREAM_HANGOVER_FRAMES,
 };
 use pie_engine::history::{HistoryStore, NewEntry};
 use pie_engine::stt::{SttEngine, WhisperEngine};
@@ -644,18 +644,18 @@ fn build_recorder(settings: &Settings) -> anyhow::Result<(AudioRecorder, bool)> 
     }
     let silero = SileroVad::new(
         Settings::expand(&settings.silero_model),
-        SILERO_DEFAULT_THRESHOLD,
+        PIE_VAD_THRESHOLD,
     )?;
-    let smoothed = SmoothedVad::new(
+    let smoothed = VadPipeline::new(
         Box::new(silero),
-        VAD_PREFILL_FRAMES,
-        VAD_OFFLINE_HANGOVER_FRAMES,
-        VAD_ONSET_FRAMES,
+        VAD_CONTEXT_FRAMES,
+        VAD_HANGOVER_FRAMES,
+        VAD_SPEECH_THRESHOLD_FRAMES,
     );
     let recorder = AudioRecorder::new()?.with_vad(
         Box::new(smoothed),
-        VAD_OFFLINE_HANGOVER_FRAMES,
-        VAD_STREAMING_HANGOVER_FRAMES,
+        VAD_HANGOVER_FRAMES,
+        VAD_STREAM_HANGOVER_FRAMES,
     );
     Ok((recorder, true))
 }

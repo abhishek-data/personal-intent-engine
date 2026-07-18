@@ -91,7 +91,7 @@ fn transcribes_synthesized_speech_through_pipeline() {
 }
 
 /// Exercises the full streaming session exactly as the CLI voice path runs
-/// it: feed frames through the StreamRouter to a run_stream worker, finalize,
+/// it: feed frames through the TranscriptRouter to a run_stream worker, finalize,
 /// and fall back to batch transcription when streaming isn't available.
 ///
 /// transcribe-cpp 0.1.3 never advertises streaming for the whisper
@@ -101,7 +101,7 @@ fn transcribes_synthesized_speech_through_pipeline() {
 /// ever supplied, the streaming branch assertions run instead.
 #[test]
 fn streaming_session_finalizes_or_falls_back_to_batch() {
-    use pie_engine::stt::{StreamRouter, SttEngine};
+    use pie_engine::stt::{TranscriptRouter, SttEngine};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Instant;
@@ -139,7 +139,7 @@ fn streaming_session_finalizes_or_falls_back_to_batch() {
 
     let samples = pie_engine::stt::load_wav_as_16k_mono(&wav).expect("wav load failed");
 
-    let router = Arc::new(StreamRouter::new());
+    let router = Arc::new(TranscriptRouter::new());
     let rx = router.open();
     let partials = Arc::new(AtomicUsize::new(0));
 

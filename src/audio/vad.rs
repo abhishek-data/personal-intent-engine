@@ -35,10 +35,10 @@ pub enum VadPolicy {
 }
 
 // VAD timing constants (in 30ms frames), tuned for 30ms frames at 16kHz.
-pub const VAD_PREFILL_FRAMES: usize = 15; // 450ms pre-speech context
-pub const VAD_OFFLINE_HANGOVER_FRAMES: usize = 15; // 450ms post-speech
-pub const VAD_STREAMING_HANGOVER_FRAMES: usize = 55; // 1.65s for streaming
-pub const VAD_ONSET_FRAMES: usize = 2; // 60ms onset detection
+pub const VAD_CONTEXT_FRAMES: usize = 15; // 450ms pre-speech context
+pub const VAD_HANGOVER_FRAMES: usize = 15; // 450ms post-speech
+pub const VAD_STREAM_HANGOVER_FRAMES: usize = 55; // 1.65s for streaming
+pub const VAD_SPEECH_THRESHOLD_FRAMES: usize = 2; // 60ms onset detection
 
 /// Smoothed VAD with onset detection, hangover tail, and prefill buffering.
 ///
@@ -47,7 +47,7 @@ pub const VAD_ONSET_FRAMES: usize = 2; // 60ms onset detection
 /// - Requires N consecutive voice frames before triggering speech
 /// - Continues forwarding after speech ends (hangover tail)
 /// - State machine: Silence -> Onset -> Speech -> Hangover -> Silence
-pub struct SmoothedVad {
+pub struct VadPipeline {
     inner: Box<dyn VoiceActivityDetector>,
     prefill_frames: usize,
     hangover_frames: usize,
@@ -61,7 +61,7 @@ pub struct SmoothedVad {
     temp_out: Vec<f32>,
 }
 
-impl SmoothedVad {
+impl VadPipeline {
     /// Wrap an inner detector with onset, hangover, and prefill smoothing.
     #[must_use]
     pub fn new(
@@ -88,7 +88,7 @@ impl SmoothedVad {
     }
 }
 
-impl VoiceActivityDetector for SmoothedVad {
+impl VoiceActivityDetector for VadPipeline {
     fn push_frame<'a>(&'a mut self, frame: &'a [f32]) -> Result<VadFrame<'a>> {
         // Buffer every frame for pre-roll
         self.frame_buffer.push_back(frame.to_vec());
@@ -248,11 +248,11 @@ mod tests {
 
     const FRAME: [f32; 4] = [0.1, 0.2, 0.3, 0.4];
 
-    fn smoothed(script: Vec<bool>, prefill: usize, hangover: usize, onset: usize) -> SmoothedVad {
-        SmoothedVad::new(Box::new(ScriptedVad::new(script)), prefill, hangover, onset)
+    fn smoothed(script: Vec<bool>, prefill: usize, hangover: usize, onset: usize) -> VadPipeline {
+        VadPipeline::new(Box::new(ScriptedVad::new(script)), prefill, hangover, onset)
     }
 
-    fn is_speech(vad: &mut SmoothedVad) -> bool {
+    fn is_speech(vad: &mut VadPipeline) -> bool {
         matches!(vad.push_frame(&FRAME).unwrap(), VadFrame::Speech(_))
     }
 

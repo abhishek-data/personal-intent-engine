@@ -1,5 +1,5 @@
 //! Silero VAD integration test: a real ONNX model must classify synthesized
-//! speech as speech and digital silence as noise, through the SmoothedVad
+//! speech as speech and digital silence as noise, through the VadPipeline
 //! wrapper exactly as the recorder uses it.
 //!
 //! Requires the `vad` + `whisper` features (whisper for the WAV loader),
@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use pie_engine::audio::{
-    SileroVad, SmoothedVad, VadFrame, VoiceActivityDetector, FRAME_SAMPLES,
-    SILERO_DEFAULT_THRESHOLD, VAD_OFFLINE_HANGOVER_FRAMES, VAD_ONSET_FRAMES, VAD_PREFILL_FRAMES,
+    SileroVad, VadPipeline, VadFrame, VoiceActivityDetector, FRAME_SAMPLES,
+    PIE_VAD_THRESHOLD, VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES, VAD_CONTEXT_FRAMES,
 };
 
 fn model_path() -> Option<PathBuf> {
@@ -28,17 +28,17 @@ fn model_path() -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-fn smoothed_silero(model: &PathBuf) -> SmoothedVad {
-    let silero = SileroVad::new(model, SILERO_DEFAULT_THRESHOLD).expect("silero load failed");
-    SmoothedVad::new(
+fn smoothed_silero(model: &PathBuf) -> VadPipeline {
+    let silero = SileroVad::new(model, PIE_VAD_THRESHOLD).expect("silero load failed");
+    VadPipeline::new(
         Box::new(silero),
-        VAD_PREFILL_FRAMES,
-        VAD_OFFLINE_HANGOVER_FRAMES,
-        VAD_ONSET_FRAMES,
+        VAD_CONTEXT_FRAMES,
+        VAD_HANGOVER_FRAMES,
+        VAD_SPEECH_THRESHOLD_FRAMES,
     )
 }
 
-fn count_speech_frames(vad: &mut SmoothedVad, samples: &[f32]) -> (usize, usize) {
+fn count_speech_frames(vad: &mut VadPipeline, samples: &[f32]) -> (usize, usize) {
     let mut speech = 0;
     let mut total = 0;
     for frame in samples.chunks_exact(FRAME_SAMPLES) {

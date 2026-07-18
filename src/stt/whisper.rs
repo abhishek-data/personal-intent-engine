@@ -164,7 +164,7 @@ impl WhisperEngine {
 }
 
 /// Consume commands until the finalize/cancel handshake so the caller's
-/// `StreamRouter::finalize` never hangs when no stream could run.
+/// `TranscriptRouter::finalize` never hangs when no stream could run.
 fn drain_until_finalize(rx: mpsc::Receiver<StreamCmd>) {
     while let Ok(cmd) = rx.recv() {
         match cmd {

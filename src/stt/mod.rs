@@ -2,7 +2,7 @@ pub mod stream;
 #[cfg(feature = "whisper")]
 pub mod whisper;
 
-pub use stream::{StreamCmd, StreamRouter};
+pub use stream::{StreamCmd, TranscriptRouter};
 #[cfg(feature = "whisper")]
 pub use whisper::WhisperEngine;
 
@@ -19,7 +19,7 @@ pub trait SttEngine: Send + Sync {
 /// Handles int/float encodings, multi-channel downmix, and resampling.
 #[cfg(feature = "whisper")]
 pub fn load_wav_as_16k_mono(path: &std::path::Path) -> anyhow::Result<Vec<f32>> {
-    use crate::audio::{FrameResampler, FRAME_DURATION_MS, WHISPER_SAMPLE_RATE};
+    use crate::audio::{AudioResampler, FRAME_DURATION_MS, WHISPER_SAMPLE_RATE};
     use std::time::Duration;
 
     let mut reader = hound::WavReader::open(path)
@@ -55,7 +55,7 @@ pub fn load_wav_as_16k_mono(path: &std::path::Path) -> anyhow::Result<Vec<f32>> 
         return Ok(mono);
     }
 
-    let mut resampler = FrameResampler::new(
+    let mut resampler = AudioResampler::new(
         spec.sample_rate as usize,
         WHISPER_SAMPLE_RATE,
         Duration::from_millis(FRAME_DURATION_MS as u64),

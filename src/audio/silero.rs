@@ -6,12 +6,12 @@ use super::vad::{VadFrame, VoiceActivityDetector};
 use super::{FRAME_SAMPLES, WHISPER_SAMPLE_RATE};
 
 /// Default speech probability threshold, empirically tuned for speech detection.
-pub const SILERO_DEFAULT_THRESHOLD: f32 = 0.3;
+pub const PIE_VAD_THRESHOLD: f32 = 0.3;
 
 /// Silero VAD (ONNX) — a small recurrent model that classifies 30 ms frames
 /// as speech vs non-speech far more robustly than energy thresholding.
 ///
-/// Wrap in [`super::SmoothedVad`] for onset/hangover/prefill smoothing; this
+/// Wrap in [`super::VadPipeline`] for onset/hangover/prefill smoothing; this
 /// type only scores individual frames.
 pub struct SileroVad {
     engine: SileroVadEngine,

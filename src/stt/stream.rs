@@ -23,10 +23,10 @@ pub enum StreamCmd {
 ///
 /// Shared between the session owner (opens/closes the route) and the audio
 /// recorder's per-frame callback (feeds frames). The recorder holds an
-/// `Arc<StreamRouter>` directly, so a frame with no stream pending costs a
+/// `Arc<TranscriptRouter>` directly, so a frame with no stream pending costs a
 /// single relaxed atomic load — no mutex lock. (zero-overhead feed pattern;
 /// the atomic-first check is the point, don't reorder it.)
-pub struct StreamRouter {
+pub struct TranscriptRouter {
     /// Command channel to the active streaming worker.
     tx: Mutex<Option<mpsc::Sender<StreamCmd>>>,
     /// True while a stream is pending or active (channel is open). The audio
@@ -34,14 +34,14 @@ pub struct StreamRouter {
     open: AtomicBool,
 }
 
-impl Default for StreamRouter {
+impl Default for TranscriptRouter {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl StreamRouter {
-    /// Create a closed router; call [`StreamRouter::open`] to begin a session.
+impl TranscriptRouter {
+    /// Create a closed router; call [`TranscriptRouter::open`] to begin a session.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -124,14 +124,14 @@ mod tests {
 
     #[test]
     fn feed_is_noop_when_closed() {
-        let router = StreamRouter::new();
+        let router = TranscriptRouter::new();
         assert!(!router.is_open());
         router.feed(&[0.0; 480]); // must not panic or block
     }
 
     #[test]
     fn feed_delivers_frames_in_order_while_open() {
-        let router = StreamRouter::new();
+        let router = TranscriptRouter::new();
         let rx = router.open();
         assert!(router.is_open());
 
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn take_closes_the_route() {
-        let router = StreamRouter::new();
+        let router = TranscriptRouter::new();
         let rx = router.open();
         let tx = router.take();
         assert!(tx.is_some());
@@ -160,13 +160,13 @@ mod tests {
 
     #[test]
     fn finalize_without_stream_returns_none() {
-        let router = StreamRouter::new();
+        let router = TranscriptRouter::new();
         assert!(matches!(router.finalize(), Ok(None)));
     }
 
     #[test]
     fn finalize_round_trips_worker_reply() {
-        let router = StreamRouter::new();
+        let router = TranscriptRouter::new();
         let rx = router.open();
 
         let worker = std::thread::spawn(move || {
