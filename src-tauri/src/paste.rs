@@ -1,9 +1,8 @@
 //! Paste text into the currently focused application.
 //!
-//! Handy's clipboard-paste flow: save the clipboard, write the text, send the
-//! platform paste keystroke via enigo, then restore the original clipboard.
-//! Requires the macOS Accessibility permission the first time keystrokes are
-//! simulated.
+//! Clipboard-paste flow: save clipboard, write text, send platform paste
+//! keystroke, restore. The keystroke is sent via enigo, and macOS requires the
+//! Accessibility permission the first time keystrokes are simulated.
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -19,7 +18,7 @@ const PASTE_DELAY_BEFORE: Duration = Duration::from_millis(80);
 const PASTE_DELAY_AFTER: Duration = Duration::from_millis(200);
 
 /// Enigo held once per app: construction probes the platform input APIs, so
-/// it shouldn't happen on every paste. (Handy manages it the same way.)
+/// it shouldn't happen on every paste.
 pub struct EnigoState(Mutex<Option<Enigo>>);
 
 impl EnigoState {

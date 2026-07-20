@@ -37,48 +37,29 @@ fn overlay_position(app: &AppHandle) -> Option<(f64, f64)> {
 #[cfg(target_os = "macos")]
 mod platform {
     use super::*;
+    use crate::nspanel::{create_floating_panel, FloatingPanelConfig};
     use tauri::{LogicalPosition, LogicalSize, Position, Size, WebviewUrl};
-    use tauri_nspanel::{tauri_panel, CollectionBehavior, PanelBuilder, PanelLevel, StyleMask};
-
-    tauri_panel! {
-        panel!(OverlayPanel {
-            config: {
-                can_become_key_window: false,
-                is_floating_panel: true
-            }
-        })
-    }
 
     pub fn create_overlay(app: &AppHandle) {
         if app.get_webview_window(OVERLAY_LABEL).is_some() {
             return;
         }
         let (x, y) = overlay_position(app).unwrap_or((100.0, 100.0));
-        let result = PanelBuilder::<_, OverlayPanel>::new(app, OVERLAY_LABEL)
-            .url(WebviewUrl::App("overlay.html".into()))
-            .title("PIE Recording")
-            .position(Position::Logical(LogicalPosition { x, y }))
-            .level(PanelLevel::Status)
-            .size(Size::Logical(LogicalSize {
-                width: OVERLAY_WIDTH,
-                height: OVERLAY_HEIGHT,
-            }))
-            .has_shadow(false)
-            .transparent(true)
-            .no_activate(true)
-            .style_mask(StyleMask::empty().borderless().nonactivating_panel())
-            .with_window(|w| w.decorations(false).transparent(true).focusable(false))
-            .collection_behavior(
-                CollectionBehavior::new()
-                    .can_join_all_spaces()
-                    .full_screen_auxiliary(),
-            )
-            .build();
+        let result = create_floating_panel(
+            app,
+            FloatingPanelConfig {
+                label: OVERLAY_LABEL,
+                url: WebviewUrl::App("overlay.html".into()),
+                title: "PIE Recording",
+                position: Position::Logical(LogicalPosition { x, y }),
+                size: Size::Logical(LogicalSize {
+                    width: OVERLAY_WIDTH,
+                    height: OVERLAY_HEIGHT,
+                }),
+            },
+        );
         match result {
-            Ok(panel) => {
-                panel.hide();
-                log::info!("Recording overlay panel created (hidden)");
-            }
+            Ok(()) => log::info!("Recording overlay panel created (hidden)"),
             Err(e) => log::error!("Failed to create overlay panel: {e}"),
         }
     }

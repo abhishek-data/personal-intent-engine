@@ -6,7 +6,7 @@ const RESAMPLER_CHUNK_SIZE: usize = 1024;
 /// Streaming resampler that converts mono audio to the target rate and emits
 /// fixed-duration frames (e.g. 30 ms / 480 samples at 16 kHz) via a callback.
 ///
-/// Based on Handy's FrameResampler:
+/// Frame-based resampler: accepts native-rate frames, outputs 16kHz for whisper.
 /// - `push()` buffers input and processes full chunks, emitting complete frames
 /// - `finish()` flushes the buffered remainder (zero-padded) so no tail audio
 ///   is lost at the end of a recording
@@ -15,7 +15,7 @@ const RESAMPLER_CHUNK_SIZE: usize = 1024;
 ///
 /// Input must already be mono; multi-channel downmixing happens in the cpal
 /// callback before samples reach this type.
-pub struct FrameResampler {
+pub struct AudioResampler {
     resampler: Option<FftFixedIn<f32>>,
     chunk_in: usize,
     in_buf: Vec<f32>,
@@ -23,7 +23,7 @@ pub struct FrameResampler {
     pending: Vec<f32>,
 }
 
-impl FrameResampler {
+impl AudioResampler {
     /// Create a resampler from `in_hz` to `out_hz` emitting frames of
     /// `frame_dur` duration. When rates match, input passes through and is
     /// only re-chunked into frames.
@@ -144,7 +144,7 @@ mod tests {
             .collect()
     }
 
-    fn collect_output(resampler: &mut FrameResampler, input: &[f32]) -> Vec<f32> {
+    fn collect_output(resampler: &mut AudioResampler, input: &[f32]) -> Vec<f32> {
         let mut out = Vec::new();
         resampler.push(input, &mut |frame| out.extend_from_slice(frame));
         out
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn passthrough_rechunks_into_frames() {
         // 16k -> 16k: no rubato, but output must still arrive in 480-sample frames
-        let mut r = FrameResampler::new(16000, 16000, Duration::from_millis(30));
+        let mut r = AudioResampler::new(16000, 16000, Duration::from_millis(30));
         let mut frames = Vec::new();
         r.push(&vec![0.1f32; 1000], &mut |frame| frames.push(frame.len()));
         assert_eq!(frames, vec![480, 480], "expected two complete frames");
@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn downsample_preserves_duration() {
         // 1 second at 48kHz should come out as ~1 second at 16kHz
-        let mut r = FrameResampler::new(48000, 16000, Duration::from_millis(30));
+        let mut r = AudioResampler::new(48000, 16000, Duration::from_millis(30));
         let input = sine_wave(48000, 1000.0, 1.0);
         let mut total = collect_output(&mut r, &input).len();
         r.finish(&mut |frame| total += frame.len());
@@ -179,7 +179,7 @@ mod tests {
         // must flush them — this is the "last word cut off" protection.
         // (Uses a realistic recording length: the FFT resampler has startup
         // latency, so a lone sub-chunk input can't test the tail flush.)
-        let mut r = FrameResampler::new(48000, 16000, Duration::from_millis(30));
+        let mut r = AudioResampler::new(48000, 16000, Duration::from_millis(30));
         let input = sine_wave(48000, 1000.0, 1.0); // 1s + 900-sample tail
         let after_push =
             collect_output(&mut r, &input).len() + collect_output(&mut r, &[0.5f32; 900]).len();
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn reset_clears_in_buf_and_pending() {
-        let mut r = FrameResampler::new(48000, 16000, Duration::from_millis(30));
+        let mut r = AudioResampler::new(48000, 16000, Duration::from_millis(30));
 
         // Push less than one chunk (1024 samples) to leave data in in_buf
         let _ = collect_output(&mut r, &[0.5f32; 500]);
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn reset_clears_fft_overlap_buffers() {
-        let mut r = FrameResampler::new(48000, 16000, Duration::from_millis(30));
+        let mut r = AudioResampler::new(48000, 16000, Duration::from_millis(30));
 
         // Loud sine through the resampler (recording 1)
         let sine = sine_wave(48000, 1000.0, 0.5);
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn finish_does_not_leak_tail_into_next_session() {
-        let mut rs = FrameResampler::new(48000, 16000, Duration::from_millis(30));
+        let mut rs = AudioResampler::new(48000, 16000, Duration::from_millis(30));
 
         // Leave a partial chunk buffered, then end the session.
         rs.push(&[0.5f32; 100], &mut |_| {});
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn reset_passthrough_mode_clears_pending() {
-        let mut r = FrameResampler::new(16000, 16000, Duration::from_millis(30));
+        let mut r = AudioResampler::new(16000, 16000, Duration::from_millis(30));
 
         // Push partial frame (less than 480 samples) to leave data in pending
         let _ = collect_output(&mut r, &[1.0f32; 200]);

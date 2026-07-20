@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod models;
+#[cfg(target_os = "macos")]
+mod nspanel;
 mod overlay;
 mod paste;
 mod settings;
@@ -17,9 +19,9 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use paste::EnigoState;
 use pie_engine::audio::{
-    AudioRecorder, SileroVad, SmoothedVad, VadPolicy, SILERO_DEFAULT_THRESHOLD,
-    VAD_OFFLINE_HANGOVER_FRAMES, VAD_ONSET_FRAMES, VAD_PREFILL_FRAMES,
-    VAD_STREAMING_HANGOVER_FRAMES,
+    AudioRecorder, SileroVad, VadPipeline, VadPolicy, PIE_VAD_THRESHOLD,
+    VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES, VAD_CONTEXT_FRAMES,
+    VAD_STREAM_HANGOVER_FRAMES,
 };
 use pie_engine::history::{HistoryStore, NewEntry};
 use pie_engine::stt::{SttEngine, WhisperEngine};
@@ -642,18 +644,18 @@ fn build_recorder(settings: &Settings) -> anyhow::Result<(AudioRecorder, bool)> 
     }
     let silero = SileroVad::new(
         Settings::expand(&settings.silero_model),
-        SILERO_DEFAULT_THRESHOLD,
+        PIE_VAD_THRESHOLD,
     )?;
-    let smoothed = SmoothedVad::new(
+    let smoothed = VadPipeline::new(
         Box::new(silero),
-        VAD_PREFILL_FRAMES,
-        VAD_OFFLINE_HANGOVER_FRAMES,
-        VAD_ONSET_FRAMES,
+        VAD_CONTEXT_FRAMES,
+        VAD_HANGOVER_FRAMES,
+        VAD_SPEECH_THRESHOLD_FRAMES,
     );
     let recorder = AudioRecorder::new()?.with_vad(
         Box::new(smoothed),
-        VAD_OFFLINE_HANGOVER_FRAMES,
-        VAD_STREAMING_HANGOVER_FRAMES,
+        VAD_HANGOVER_FRAMES,
+        VAD_STREAM_HANGOVER_FRAMES,
     );
     Ok((recorder, true))
 }
@@ -665,11 +667,8 @@ fn main() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build());
-    // macOS overlay is an NSPanel (see overlay.rs) — needs the nspanel plugin.
-    #[cfg(target_os = "macos")]
-    {
-        builder = builder.plugin(tauri_nspanel::init());
-    }
+    // macOS overlay is an NSPanel created directly in overlay.rs (see the
+    // vendored nspanel module) — no external plugin needed.
 
     builder
         .setup(|app| {

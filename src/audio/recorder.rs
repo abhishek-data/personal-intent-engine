@@ -5,7 +5,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::vad::{VadFrame, VadPolicy, VoiceActivityDetector};
-use super::{FrameResampler, FRAME_DURATION_MS, FRAME_SAMPLES, WHISPER_SAMPLE_RATE};
+use super::{AudioResampler, FRAME_DURATION_MS, FRAME_SAMPLES, WHISPER_SAMPLE_RATE};
 
 /// Commands for the audio worker thread
 enum Cmd {
@@ -56,7 +56,7 @@ pub type AudioFrameCallback = Arc<dyn Fn(&[f32]) + Send + Sync + 'static>;
 /// callback, resamples to 16 kHz, applies VAD filtering, and provides both
 /// buffered and streaming output.
 ///
-/// Architecture based on Handy's recorder:
+/// Audio recorder: opens device, streams frames through VAD, collects samples.
 /// - Dedicated worker thread; channel-based communication
 /// - Stream plays continuously; a `recording` flag gates capture so no
 ///   audio is lost around start/stop transitions
@@ -377,7 +377,7 @@ impl AudioRecorder {
 
     /// Pick the best stream config at the device's native rate. Forcing the
     /// hardware to 16 kHz can fail on Bluetooth codecs and some ALSA drivers,
-    /// so we capture at the native rate and let `FrameResampler` downsample.
+    /// so we capture at the native rate and let `AudioResampler` downsample.
     fn get_preferred_config(device: &Device) -> anyhow::Result<cpal::SupportedStreamConfig> {
         let default_config = device
             .default_input_config()
@@ -444,7 +444,7 @@ fn run_consumer(
     audio_cb: Option<AudioFrameCallback>,
     stop_flag: Arc<AtomicBool>,
 ) {
-    let mut resampler = FrameResampler::new(
+    let mut resampler = AudioResampler::new(
         in_sample_rate as usize,
         WHISPER_SAMPLE_RATE,
         Duration::from_millis(FRAME_DURATION_MS as u64),

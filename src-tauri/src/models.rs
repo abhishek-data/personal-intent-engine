@@ -37,7 +37,8 @@ struct CatalogEntry {
 }
 
 /// Whisper GGML models come from the whisper.cpp HuggingFace repo; the Silero
-/// VAD ONNX from Handy's mirror. Both are the files used elsewhere in PIE.
+/// VAD ONNX model from the official snakers4/silero-vad repo. Both are the
+/// files used elsewhere in PIE.
 const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "whisper-tiny-en",
@@ -80,7 +81,7 @@ const CATALOG: &[CatalogEntry] = &[
         name: "Silero VAD v4",
         description: "Voice activity detection — trims silence.",
         kind: ModelKind::Vad,
-        url: "https://blob.handy.computer/silero_vad_v4.onnx",
+        url: "https://github.com/snakers4/silero-vad/raw/v4.0/files/silero_vad.onnx",
         filename: "silero_vad_v4.onnx",
         size_mb: 2,
     },
