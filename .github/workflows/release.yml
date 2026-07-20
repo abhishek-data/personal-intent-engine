@@ -51,6 +51,15 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
+          # A missing signing cert must NOT fail the whole release. When the
+          # APPLE_CERTIFICATE secret is absent, fall back to ad-hoc signing so
+          # the build still produces artifacts (users just re-grant TCC on
+          # update). When present, sign with the stable "PIE Developers" identity.
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "No APPLE_CERTIFICATE secret set — falling back to ad-hoc signing."
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            exit 0
+          fi
           KEYCHAIN="$RUNNER_TEMP/pie-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
           CERT_PATH="$RUNNER_TEMP/pie-cert.p12"
@@ -64,19 +73,23 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/[" ]//g')
           rm -f "$CERT_PATH"
           echo "Signing identities available:"
+          # Self-signed certs list as "0 valid" here (no trusted chain) yet still
+          # sign fine, so this is informational only — never gate the build on it.
           security find-identity -v "$KEYCHAIN" || true
+          echo "APPLE_SIGNING_IDENTITY=PIE Developers" >> "$GITHUB_ENV"
 
       # tauri-action installs the Tauri CLI, builds the frontend + app, bundles
       # the .dmg / .exe, and uploads them to a GitHub release. On macOS,
-      # APPLE_SIGNING_IDENTITY overrides tauri.conf.json's signingIdentity ("-")
-      # so the build signs with the imported "PIE Developers" cert. On Windows
-      # the variable is ignored. Notarization env (APPLE_ID/APPLE_PASSWORD) is
-      # intentionally unset — this is a self-signed, non-notarized distribution.
+      # APPLE_SIGNING_IDENTITY (set by the import step above via $GITHUB_ENV —
+      # "PIE Developers" when the cert is present, "-" for ad-hoc otherwise)
+      # overrides tauri.conf.json's signingIdentity. On Windows the import step
+      # is skipped so the variable is unset and ignored. Notarization env
+      # (APPLE_ID/APPLE_PASSWORD) is intentionally unset — this is a self-signed,
+      # non-notarized distribution.
       - name: Build app and publish release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_SIGNING_IDENTITY: PIE Developers
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'PIE ${{ github.ref_name }}'
