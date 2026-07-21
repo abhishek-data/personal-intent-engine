@@ -1,4 +1,10 @@
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
+
+/// Shared HTTP client. `reqwest::Client` is internally reference-counted and
+/// holds a connection pool, so cloning this shares one pool (and TLS session
+/// reuse / HTTP/2 multiplexing) across every `OpenAiClient` instance.
+static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
 
 /// OpenAI-compatible API client.
 /// Works with OpenAI, Anthropic (via proxy), local models, etc.
@@ -38,7 +44,7 @@ impl OpenAiClient {
     #[must_use]
     pub fn new(base_url: &str, api_key: &str) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: HTTP_CLIENT.clone(),
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
         }
