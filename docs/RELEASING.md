@@ -15,6 +15,7 @@ Releases are built and published by GitHub Actions (`.github/workflows/release.y
 
 ## Notes
 
-- Builds are **unsigned**. macOS users must right-click → **Open** the first time; Windows users click **More info → Run anyway** past SmartScreen.
+- macOS builds are signed with a **stable self-signed cert** (`PIE Developers`) so users' Accessibility/Microphone grants survive updates — see [signing.md](signing.md). This is **not** notarized, so first launch still needs the Gatekeeper strip: right-click → **Open**, or `xattr -cr /Applications/PIE.app` (the install script does this automatically). Windows builds are unsigned; users click **More info → Run anyway** past SmartScreen.
+- **Never regenerate the macOS signing cert** without following the rotation steps in [signing.md](signing.md) — a new cert breaks every existing user's permission grants.
 - To trigger a build without tagging, run the workflow manually from the **Actions** tab (`workflow_dispatch`).
 - First Windows CI build is unverified — if it fails to compile, that is the "Windows support" port work, tracked separately.

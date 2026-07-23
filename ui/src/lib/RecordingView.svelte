@@ -1,5 +1,11 @@
 <script>
+  import { keycaps } from "./keycaps.js";
+
   let { recState, outcome, llmResponse, llmBusy, hotkey, stateLabel, onToggle, onCancel, onSend, onCopy } = $props();
+
+  // Render the user's actual configured hotkey as keycaps (⌘ ⇧ Space); when the
+  // hotkey is disabled (empty) there is nothing to press, so the hint is hidden.
+  const caps = $derived(keycaps(hotkey));
 </script>
 
 <div class="record-view">
@@ -58,7 +64,9 @@
       <span class="dot"></span>
     </button>
     <p class="record-state">{stateLabel}</p>
-    <p class="record-hint">or press <kbd>{hotkey}</kbd> in any app</p>
+    {#if caps.length}
+      <p class="record-hint">or press {#each caps as cap}<kbd>{cap}</kbd>{/each} in any app</p>
+    {/if}
     {#if recState === "recording"}
       <button class="text-btn" onclick={onCancel} aria-label="Cancel recording">Cancel</button>
     {/if}

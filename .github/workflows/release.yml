@@ -134,3 +134,47 @@ jobs:
             Builds are unsigned (ad-hoc only). On first run, grant **Microphone** and **Accessibility** permission (Accessibility is needed to paste the prompt at your cursor).
           releaseDraft: true
           prerelease: true
+
+      # Guard against a silent signing regression. macOS TCC pins the
+      # Accessibility / Microphone grants users give PIE to this exact
+      # self-signed leaf certificate (SHA-1 below). If a release is ever signed
+      # with a DIFFERENT identity, every existing user's grant silently breaks
+      # and they must re-grant after updating. Two cases:
+      #   * signed with a DIFFERENT cert (regenerated .p12)  -> hard fail.
+      #   * ad-hoc fallback (APPLE_CERTIFICATE secret absent) -> loud warning,
+      #     release still proceeds (matches the deliberate fallback in the
+      #     "Import macOS signing certificate" step above).
+      #
+      # Rotating the cert is a BREAKING change: do NOT regenerate the .p12 to
+      # "refresh" it. If it genuinely must change, update EXPECTED_LEAF_SHA1 in
+      # the same commit and tell users the update needs a one-time re-grant.
+      # See docs/signing.md.
+      - name: Verify macOS signing identity is the pinned cert
+        if: matrix.platform == 'macos-14'
+        env:
+          EXPECTED_LEAF_SHA1: d318e19eaf8d165d5d5e16cd7d1817e7d8d4d854
+        run: |
+          set -euo pipefail
+          APP="$(find target/release/bundle/macos -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -1)"
+          if [ -z "$APP" ]; then
+            echo "::error::No built .app found under target/release/bundle/macos to verify."
+            exit 1
+          fi
+          echo "Verifying signature of $APP"
+          WORK="$(mktemp -d)"
+          codesign -d --extract-certificates="$WORK/cert" "$APP" 2>/dev/null || true
+          if [ ! -f "$WORK/cert0" ]; then
+            # Ad-hoc: no embedded certificate. Do not fail (deliberate fallback),
+            # but make the consequence impossible to miss in the run log.
+            echo "::error title=Ad-hoc signed release::PIE was signed ad-hoc (no stable cert). Users' Accessibility/Microphone grants WILL break on update. Set the APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD secrets to the stable 'PIE Developers' cert to fix this."
+            exit 0
+          fi
+          ACTUAL="$(openssl x509 -inform DER -in "$WORK/cert0" -noout -fingerprint -sha1 \
+                    | sed 's/.*=//; s/://g' | tr 'A-F' 'a-f')"
+          echo "Expected leaf SHA-1: $EXPECTED_LEAF_SHA1"
+          echo "Actual   leaf SHA-1: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED_LEAF_SHA1" ]; then
+            echo "::error title=Signing cert changed::PIE was signed with a different certificate than the pinned one. Every user's Accessibility/Microphone grant will break on update. If this change is intentional, update EXPECTED_LEAF_SHA1 in release.yml and note the required re-grant in the release notes (see docs/signing.md)."
+            exit 1
+          fi
+          echo "✓ Signed with the pinned stable 'PIE Developers' certificate."
