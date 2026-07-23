@@ -3,9 +3,18 @@
 
 use pie_engine::PieEngine;
 
+fn temp_pron_path() -> std::path::PathBuf {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .subsec_nanos();
+    std::env::temp_dir().join(format!("pie-it-pron-{}-{}.json", std::process::id(), n))
+}
+
 #[tokio::test]
 async fn corrector_fixes_jargon_in_the_optimized_prompt() {
-    let mut engine = PieEngine::new().await.expect("engine");
+    let mut engine = PieEngine::new_ephemeral(temp_pron_path());
     let result = engine
         .process("build a next jazz app", "balanced")
         .await
@@ -21,7 +30,7 @@ async fn corrector_fixes_jargon_in_the_optimized_prompt() {
 
 #[tokio::test]
 async fn clean_input_is_unchanged_by_the_corrector() {
-    let mut engine = PieEngine::new().await.expect("engine");
+    let mut engine = PieEngine::new_ephemeral(temp_pron_path());
     let result = engine
         .process("please summarize this document", "balanced")
         .await

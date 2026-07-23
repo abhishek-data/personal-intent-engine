@@ -56,6 +56,21 @@ impl PieEngine {
         })
     }
 
+    /// Test/ephemeral engine: performs NO disk persistence. Memory lives only
+    /// in-process (never saved), and the corrector reads/writes an isolated
+    /// `user_dict_path` instead of the real user config — so integration tests
+    /// never touch or pollute real app data.
+    #[doc(hidden)]
+    pub fn new_ephemeral(user_dict_path: std::path::PathBuf) -> Self {
+        Self {
+            memory: MemoryStore::default(),
+            extractor: IntentExtractor::new(),
+            llm: LlmRouter::new(),
+            stt: None,
+            corrector: PronunciationCorrector::with_user_path(user_dict_path),
+        }
+    }
+
     /// Attach a speech-to-text engine, enabling `process_audio`.
     pub fn with_stt(mut self, stt: Box<dyn SttEngine>) -> Self {
         self.stt = Some(stt);
