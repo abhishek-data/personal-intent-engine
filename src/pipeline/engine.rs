@@ -173,7 +173,8 @@ impl PieEngine {
 
     /// Opt-in deep correction via the configured LLM. NOT on the always-on
     /// path — called only from the settings toggle or the on-demand command.
-    /// Falls back to the input on any LLM error (never worse than no deep pass).
+    /// Returns `Err` on any LLM failure; callers decide whether to fall back to
+    /// the deterministic result (toggle path) or surface the error (on-demand).
     pub async fn deep_correct(
         &self,
         transcript: &str,
