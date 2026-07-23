@@ -84,6 +84,12 @@ impl CorrectionDict {
             }
         }
 
+        if applied.is_empty() {
+            return CorrectionOutcome {
+                text: text.to_string(),
+                applied,
+            };
+        }
         CorrectionOutcome {
             text: out_tokens.join(" "),
             applied,
@@ -160,6 +166,13 @@ mod tests {
     fn no_match_returns_input_unchanged() {
         let out = dict().apply_exact("hello world");
         assert_eq!(out.text, "hello world");
+        assert!(out.applied.is_empty());
+    }
+
+    #[test]
+    fn no_match_preserves_original_whitespace_byte_for_byte() {
+        let out = dict().apply_exact("hi\nthere   world  ");
+        assert_eq!(out.text, "hi\nthere   world  ");
         assert!(out.applied.is_empty());
     }
 }
