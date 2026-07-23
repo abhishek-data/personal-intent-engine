@@ -111,32 +111,43 @@ impl PronunciationCorrector {
         if heard.is_empty() || canonical.is_empty() {
             anyhow::bail!("heard and canonical must be non-empty");
         }
-        self.user.retain(|e| e.heard != heard);
-        self.user.push(Correction {
+        let mut candidate: Vec<Correction> = self
+            .user
+            .iter()
+            .filter(|e| e.heard != heard)
+            .cloned()
+            .collect();
+        candidate.push(Correction {
             heard,
             canonical,
             source: Source::User,
         });
-        self.persist()?;
+        Self::persist_entries(&self.user_path, &candidate)?;
+        self.user = candidate;
         self.rebuild();
         Ok(())
     }
 
     pub fn remove_user_correction(&mut self, heard: &str) -> anyhow::Result<()> {
         let heard = heard.trim().to_lowercase();
-        self.user.retain(|e| e.heard != heard);
-        self.persist()?;
+        let candidate: Vec<Correction> = self
+            .user
+            .iter()
+            .filter(|e| e.heard != heard)
+            .cloned()
+            .collect();
+        Self::persist_entries(&self.user_path, &candidate)?;
+        self.user = candidate;
         self.rebuild();
         Ok(())
     }
 
-    fn persist(&self) -> anyhow::Result<()> {
-        if let Some(path) = &self.user_path {
+    fn persist_entries(path: &Option<PathBuf>, user: &[Correction]) -> anyhow::Result<()> {
+        if let Some(path) = path {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let entries: Vec<UserEntry> = self
-                .user
+            let entries: Vec<UserEntry> = user
                 .iter()
                 .map(|e| UserEntry {
                     heard: e.heard.clone(),
@@ -245,5 +256,24 @@ mod tests {
         c.remove_user_correction("svelte").unwrap();
         assert!(c.user_corrections().is_empty());
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn failed_persist_leaves_state_consistent() {
+        // Make the parent path a regular file so create_dir_all fails.
+        let mut file = std::env::temp_dir();
+        file.push(format!("pie-notadir-{}", rand_suffix()));
+        std::fs::write(&file, b"x").unwrap();
+        let bad_path = file.join("pronunciation.json"); // parent is a file
+        let mut c = PronunciationCorrector::with_user_path(bad_path);
+        let res = c.add_user_correction("kubernetes", "K8s");
+        assert!(res.is_err(), "persist to a bad path must error");
+        // In-memory state must not have drifted.
+        assert!(c.user_corrections().is_empty());
+        assert_eq!(
+            c.correct("i love kubernetes", &HashSet::new()).text,
+            "i love Kubernetes"
+        );
+        let _ = std::fs::remove_file(file);
     }
 }
