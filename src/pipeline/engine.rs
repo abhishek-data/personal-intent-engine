@@ -1,3 +1,4 @@
+use crate::corrector::{AppliedFix, PronunciationCorrector};
 use crate::intent::{Intent, IntentExtractor};
 use crate::llm::LlmRouter;
 use crate::memory::store::MemoryStore;
@@ -19,6 +20,12 @@ pub struct PieResult {
 
     /// Estimated token count
     pub estimated_tokens: usize,
+
+    /// The transcript after correction (what intent/optimize actually saw).
+    pub corrected_transcript: String,
+
+    /// Corrections applied to the transcript, for UI transparency.
+    pub applied: Vec<AppliedFix>,
 }
 
 /// The main PIE engine that orchestrates the full pipeline.
@@ -29,6 +36,7 @@ pub struct PieEngine {
     extractor: IntentExtractor,
     llm: LlmRouter,
     stt: Option<Box<dyn SttEngine>>,
+    corrector: PronunciationCorrector,
 }
 
 impl PieEngine {
@@ -37,12 +45,14 @@ impl PieEngine {
         let memory = MemoryStore::load();
         let extractor = IntentExtractor::new();
         let llm = LlmRouter::new();
+        let corrector = PronunciationCorrector::new();
 
         Ok(Self {
             memory,
             extractor,
             llm,
             stt: None,
+            corrector,
         })
     }
 
@@ -77,6 +87,19 @@ impl PieEngine {
     /// Process text input through the full PIE pipeline.
     /// Returns the extracted intent and optimized prompt.
     pub async fn process(&mut self, input: &str, mode: &str) -> anyhow::Result<PieResult> {
+        // Step 0: Correct speech-to-text jargon errors before anything else.
+        // Allow-set: terms the user is known to use, so static phonetic entries
+        // only fire for relevant terms. Derived from the profile's tech stack.
+        let allowed: std::collections::HashSet<String> = self
+            .memory
+            .profile
+            .technologies
+            .iter()
+            .map(|t| t.to_lowercase())
+            .collect();
+        let correction = self.corrector.correct(input, &allowed);
+        let input = correction.text.as_str();
+
         // Step 1: Extract intent
         let intent = self.extractor.extract(input);
 
@@ -107,6 +130,8 @@ impl PieEngine {
             optimized_prompt: optimized.text,
             mode: optimized.mode,
             estimated_tokens: optimized.estimated_tokens,
+            corrected_transcript: correction.text.clone(),
+            applied: correction.applied,
         })
     }
 
