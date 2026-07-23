@@ -418,6 +418,12 @@ fn select_model(app: AppHandle, state: State<'_, AppState>, id: String) -> Resul
     };
     settings.save().map_err(|e| e.to_string())?;
     emit_event(&app, "pie://models-changed", ());
+    // Warm the newly selected whisper model in the background so it's hot before
+    // first use. VAD selection doesn't need this — the VAD cache loads on the
+    // next recording start regardless.
+    if matches!(kind, models::ModelKind::Whisper) {
+        warm_whisper(&app);
+    }
     Ok(())
 }
 
@@ -638,6 +644,29 @@ fn get_or_load_whisper(
     Ok(engine)
 }
 
+/// Load the configured whisper model into the cache on a background thread so
+/// the first transcription of a session isn't cold. Non-blocking, silent, and
+/// best-effort: a no-op when no model is configured, and a logged warning on
+/// failure (the next real transcription falls back to the lazy load).
+fn warm_whisper(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let settings = state
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if settings.whisper_model.is_empty() {
+            return;
+        }
+        match get_or_load_whisper(&state, &settings) {
+            Ok(_) => log::info!("Whisper model warmed"),
+            Err(e) => log::warn!("Whisper warm-up failed (will load on first use): {e}"),
+        }
+    });
+}
+
 /// Recorder with Silero VAD when configured; VAD-free otherwise. The Silero
 /// session is loaded once and reused across recordings via `vad_cache`.
 fn build_recorder(
@@ -744,6 +773,10 @@ fn main() {
                     }
                 })
                 .build(app)?;
+
+            // Warm the whisper model off the launch path so the first
+            // transcription isn't cold. Non-blocking.
+            warm_whisper(app.handle());
 
             Ok(())
         })
