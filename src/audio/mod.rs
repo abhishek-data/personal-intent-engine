@@ -5,6 +5,7 @@ pub mod silero;
 #[cfg(feature = "vad")]
 pub mod silero_vad_engine;
 pub mod vad;
+pub mod vad_cache;
 
 /// Audio capture configuration
 pub const WHISPER_SAMPLE_RATE: usize = 16000;
@@ -17,7 +18,7 @@ pub use resampler::AudioResampler;
 #[cfg(feature = "vad")]
 pub use silero::{SileroVad, PIE_VAD_THRESHOLD};
 pub use vad::{
-    EnergyVad, VadPipeline, VadFrame, VadPolicy, VoiceActivityDetector,
-    VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES, VAD_CONTEXT_FRAMES,
-    VAD_STREAM_HANGOVER_FRAMES,
+    EnergyVad, VadFrame, VadPipeline, VadPolicy, VoiceActivityDetector, VAD_CONTEXT_FRAMES,
+    VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES, VAD_STREAM_HANGOVER_FRAMES,
 };
+pub use vad_cache::{SharedVad, VadCache};
