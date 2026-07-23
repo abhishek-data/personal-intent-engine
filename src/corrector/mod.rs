@@ -6,6 +6,7 @@
 //! one correction path.
 
 pub mod dictionary;
+pub mod phonetic;
 
 pub use dictionary::{Correction, CorrectionDict, Source};
 

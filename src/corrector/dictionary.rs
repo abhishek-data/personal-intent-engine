@@ -1,3 +1,4 @@
+use super::phonetic::phonetic_key;
 use super::{AppliedFix, CorrectionOutcome, Tier};
 
 /// Origin of a correction entry; user entries override static ones.
@@ -95,6 +96,53 @@ impl CorrectionDict {
             applied,
         }
     }
+
+    /// Replace single tokens whose phonetic key matches a single-word entry,
+    /// but only when that entry's canonical is in `allowed` (lowercased). This
+    /// gate is what prevents over-correcting generic words.
+    pub fn apply_phonetic(
+        &self,
+        text: &str,
+        allowed: &std::collections::HashSet<String>,
+    ) -> CorrectionOutcome {
+        // Build a phonetic index over single-word, allowed entries.
+        let mut index: std::collections::HashMap<String, &Correction> =
+            std::collections::HashMap::new();
+        for e in &self.entries {
+            if e.heard.split_whitespace().count() != 1 {
+                continue;
+            }
+            if !allowed.contains(&e.canonical.to_lowercase()) {
+                continue;
+            }
+            index.entry(phonetic_key(&e.heard)).or_insert(e);
+        }
+
+        let tokens: Vec<&str> = text.split_whitespace().collect();
+        let mut out_tokens = Vec::with_capacity(tokens.len());
+        let mut applied = Vec::new();
+        for tok in tokens {
+            let (norm, trailing) = normalize(tok);
+            if !norm.is_empty() {
+                if let Some(e) = index.get(&phonetic_key(&norm)) {
+                    if e.canonical.to_lowercase() != norm {
+                        applied.push(AppliedFix {
+                            from: norm.clone(),
+                            to: e.canonical.clone(),
+                            tier: Tier::Phonetic,
+                        });
+                    }
+                    out_tokens.push(format!("{}{}", e.canonical, trailing));
+                    continue;
+                }
+            }
+            out_tokens.push(tok.to_string());
+        }
+        CorrectionOutcome {
+            text: out_tokens.join(" "),
+            applied,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -174,5 +222,40 @@ mod tests {
         let out = dict().apply_exact("hi\nthere   world  ");
         assert_eq!(out.text, "hi\nthere   world  ");
         assert!(out.applied.is_empty());
+    }
+
+    use std::collections::HashSet;
+
+    fn phon_dict() -> CorrectionDict {
+        CorrectionDict::from_entries(vec![Correction {
+            heard: "kubernetes".into(),
+            canonical: "Kubernetes".into(),
+            source: Source::Static,
+        }])
+    }
+
+    #[test]
+    fn phonetic_fires_when_canonical_is_allowed() {
+        let allowed: HashSet<String> = ["kubernetes".into()].into_iter().collect();
+        let out = phon_dict().apply_phonetic("deploy to coobernetes today", &allowed);
+        assert_eq!(out.text, "deploy to Kubernetes today");
+        assert_eq!(out.applied.len(), 1);
+        assert_eq!(out.applied[0].tier, Tier::Phonetic);
+    }
+
+    #[test]
+    fn phonetic_does_not_fire_with_empty_allow_set() {
+        // The core anti-over-correction guarantee.
+        let out = phon_dict().apply_phonetic("deploy to coobernetes today", &HashSet::new());
+        assert_eq!(out.text, "deploy to coobernetes today");
+        assert!(out.applied.is_empty());
+    }
+
+    #[test]
+    fn phonetic_leaves_exact_word_alone_but_is_recorded_when_changed() {
+        let allowed: HashSet<String> = ["kubernetes".into()].into_iter().collect();
+        let out = phon_dict().apply_phonetic("kubernetes rocks", &allowed);
+        // Already correct spelling maps to same key -> canonical casing applied.
+        assert_eq!(out.text, "Kubernetes rocks");
     }
 }
