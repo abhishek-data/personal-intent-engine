@@ -121,7 +121,7 @@ impl CorrectionDict {
         let tokens: Vec<&str> = text.split_whitespace().collect();
         let mut out_tokens = Vec::with_capacity(tokens.len());
         let mut applied = Vec::new();
-        for tok in tokens {
+        for tok in &tokens {
             let (norm, trailing) = normalize(tok);
             if !norm.is_empty() {
                 if let Some(e) = index.get(&phonetic_key(&norm)) {
@@ -138,6 +138,18 @@ impl CorrectionDict {
             }
             out_tokens.push(tok.to_string());
         }
+
+        if applied.is_empty()
+            && out_tokens
+                .iter()
+                .zip(tokens.iter())
+                .all(|(out, orig)| out.as_str() == *orig)
+        {
+            return CorrectionOutcome {
+                text: text.to_string(),
+                applied,
+            };
+        }
         CorrectionOutcome {
             text: out_tokens.join(" "),
             applied,
@@ -148,6 +160,7 @@ impl CorrectionDict {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     fn dict() -> CorrectionDict {
         CorrectionDict::from_entries(vec![
@@ -224,8 +237,6 @@ mod tests {
         assert!(out.applied.is_empty());
     }
 
-    use std::collections::HashSet;
-
     fn phon_dict() -> CorrectionDict {
         CorrectionDict::from_entries(vec![Correction {
             heard: "kubernetes".into(),
@@ -257,5 +268,12 @@ mod tests {
         let out = phon_dict().apply_phonetic("kubernetes rocks", &allowed);
         // Already correct spelling maps to same key -> canonical casing applied.
         assert_eq!(out.text, "Kubernetes rocks");
+    }
+
+    #[test]
+    fn phonetic_no_match_preserves_original_whitespace() {
+        let out = phon_dict().apply_phonetic("deploy  to   coobernetes today\n", &HashSet::new());
+        assert_eq!(out.text, "deploy  to   coobernetes today\n");
+        assert!(out.applied.is_empty());
     }
 }
