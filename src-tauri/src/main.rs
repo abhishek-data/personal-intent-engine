@@ -19,8 +19,8 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use paste::EnigoState;
 use pie_engine::audio::{
-    AudioRecorder, SileroVad, VadPipeline, VadPolicy, PIE_VAD_THRESHOLD,
-    VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES, VAD_CONTEXT_FRAMES,
+    AudioRecorder, SileroVad, VadCache, VadPipeline, VadPolicy, VoiceActivityDetector,
+    PIE_VAD_THRESHOLD, VAD_CONTEXT_FRAMES, VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES,
     VAD_STREAM_HANGOVER_FRAMES,
 };
 use pie_engine::history::{HistoryStore, NewEntry};
@@ -34,6 +34,9 @@ struct AppState {
     settings: Mutex<Settings>,
     /// Open while a recording session is active.
     recorder: Mutex<Option<AudioRecorder>>,
+    /// Cached Silero VAD session, reused across recordings so the ONNX model
+    /// isn't rebuilt from disk on every start. Keyed by model path.
+    vad_cache: Mutex<VadCache>,
     /// True from stop until processing finishes; the hotkey ignores presses
     /// while set so a double-tap can't start a session mid-decode.
     busy: AtomicBool,
@@ -101,7 +104,10 @@ fn do_start_recording(app: &AppHandle) -> Result<(), String> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let (mut recorder, vad_active) = build_recorder(&settings).map_err(|e| e.to_string())?;
+    let (mut recorder, vad_active) = {
+        let mut vad_cache = state.vad_cache.lock().unwrap_or_else(|e| e.into_inner());
+        build_recorder(&settings, &mut vad_cache).map_err(|e| e.to_string())?
+    };
     recorder.open(None).map_err(|e| e.to_string())?;
     recorder
         .start(if vad_active {
@@ -434,8 +440,7 @@ fn delete_model(app: AppHandle, state: State<'_, AppState>, id: String) -> Resul
     }
     drop(settings);
 
-    std::fs::remove_file(&path)
-        .map_err(|e| format!("Failed to delete {}: {e}", path.display()))?;
+    std::fs::remove_file(&path).map_err(|e| format!("Failed to delete {}: {e}", path.display()))?;
     log::info!("Deleted model: {}", path.display());
     emit_event(&app, "pie://models-changed", ());
     Ok(())
@@ -555,11 +560,7 @@ fn list_history(
 }
 
 #[tauri::command]
-fn delete_history_entry(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: i64,
-) -> Result<(), String> {
+fn delete_history_entry(app: AppHandle, state: State<'_, AppState>, id: i64) -> Result<(), String> {
     {
         let history = state.history.lock().unwrap_or_else(|e| e.into_inner());
         history.delete(id).map_err(|e| e.to_string())?;
@@ -637,23 +638,28 @@ fn get_or_load_whisper(
     Ok(engine)
 }
 
-/// Recorder with Silero VAD when configured; VAD-free otherwise.
-fn build_recorder(settings: &Settings) -> anyhow::Result<(AudioRecorder, bool)> {
+/// Recorder with Silero VAD when configured; VAD-free otherwise. The Silero
+/// session is loaded once and reused across recordings via `vad_cache`.
+fn build_recorder(
+    settings: &Settings,
+    vad_cache: &mut VadCache,
+) -> anyhow::Result<(AudioRecorder, bool)> {
     if settings.silero_model.is_empty() {
         return Ok((AudioRecorder::new()?, false));
     }
-    let silero = SileroVad::new(
-        Settings::expand(&settings.silero_model),
-        PIE_VAD_THRESHOLD,
-    )?;
-    let smoothed = VadPipeline::new(
-        Box::new(silero),
-        VAD_CONTEXT_FRAMES,
-        VAD_HANGOVER_FRAMES,
-        VAD_SPEECH_THRESHOLD_FRAMES,
-    );
-    let recorder = AudioRecorder::new()?.with_vad(
-        Box::new(smoothed),
+    let model_path = Settings::expand(&settings.silero_model);
+    let detector = vad_cache.get_or_build(&model_path, || {
+        let silero = SileroVad::new(&model_path, PIE_VAD_THRESHOLD)?;
+        let smoothed = VadPipeline::new(
+            Box::new(silero),
+            VAD_CONTEXT_FRAMES,
+            VAD_HANGOVER_FRAMES,
+            VAD_SPEECH_THRESHOLD_FRAMES,
+        );
+        Ok(Box::new(smoothed) as Box<dyn VoiceActivityDetector>)
+    })?;
+    let recorder = AudioRecorder::new()?.with_vad_shared(
+        detector,
         VAD_HANGOVER_FRAMES,
         VAD_STREAM_HANGOVER_FRAMES,
     );
@@ -686,6 +692,7 @@ fn main() {
             app.manage(AppState {
                 settings: Mutex::new(settings),
                 recorder: Mutex::new(None),
+                vad_cache: Mutex::new(VadCache::new()),
                 busy: AtomicBool::new(false),
                 whisper: Mutex::new(None),
                 engine: tokio::sync::Mutex::new(engine),
