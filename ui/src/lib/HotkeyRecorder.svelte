@@ -1,5 +1,6 @@
 <script>
   import { invoke } from "@tauri-apps/api/core";
+  import { keycaps } from "./keycaps.js";
 
   // Shortcut pane: click "Change", press a combo; we read event.code +
   // modifiers (which the Tauri shortcut parser accepts verbatim) and save it.
@@ -64,23 +65,6 @@
   function disableHotkey() {
     settings.hotkey = "";
     onSave();
-  }
-
-  // Turn a stored accelerator into display keycaps (⌘ ⇧ Space, etc.).
-  const CAP_SYMBOLS = {
-    Command: "⌘", Cmd: "⌘", CmdOrCtrl: "⌘", CommandOrControl: "⌘",
-    Super: "⌘", Meta: "⌘", Control: "⌃", Ctrl: "⌃", Alt: "⌥",
-    Option: "⌥", Shift: "⇧",
-  };
-  const ARROW_SYMBOLS = { ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" };
-  function keycaps(accel) {
-    return accel.split("+").map((t) => {
-      if (CAP_SYMBOLS[t]) return CAP_SYMBOLS[t];
-      if (t.startsWith("Key")) return t.slice(3);
-      if (t.startsWith("Digit")) return t.slice(5);
-      if (ARROW_SYMBOLS[t]) return ARROW_SYMBOLS[t];
-      return t;
-    });
   }
 </script>
 

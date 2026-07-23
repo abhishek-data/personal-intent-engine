@@ -109,3 +109,12 @@ test: add intent extractor unit tests
 - Doc comments on all public items (`/// ...`)
 - Max function length: ~50 lines. Extract helpers.
 - Prefer `impl Trait` over `Box<dyn Trait>` where possible
+
+## macOS Signing (do not break)
+
+macOS releases are signed with a **stable self-signed cert** (`PIE Developers`,
+leaf SHA-1 `d318…d854`). macOS TCC pins users' Accessibility/Microphone grants
+to that cert, so **signing with any different identity — a regenerated `.p12` or
+an ad-hoc fallback — silently breaks every user's permissions on update.** Never
+regenerate the cert to "refresh" it. Full rules, the CI pin-check, and the
+rotation procedure: [docs/signing.md](docs/signing.md).
