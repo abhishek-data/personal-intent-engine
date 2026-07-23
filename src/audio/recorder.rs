@@ -96,13 +96,32 @@ impl AudioRecorder {
     /// a recording, so one engine covers both instead of two resident instances.
     #[must_use]
     pub fn with_vad(
-        mut self,
+        self,
         detector: Box<dyn VoiceActivityDetector>,
         offline_hangover_frames: usize,
         streaming_hangover_frames: usize,
     ) -> Self {
+        self.with_vad_shared(
+            Arc::new(Mutex::new(detector)),
+            offline_hangover_frames,
+            streaming_hangover_frames,
+        )
+    }
+
+    /// Attach a VAD engine via a *shared* handle so an expensive-to-load
+    /// detector (e.g. the Silero ONNX session) can be reused across recordings
+    /// instead of rebuilt each time. The recorder resets the detector's state
+    /// at each session start, so the caller may keep its own clone of `detector`
+    /// alive between recordings.
+    #[must_use]
+    pub fn with_vad_shared(
+        mut self,
+        detector: Arc<Mutex<Box<dyn VoiceActivityDetector>>>,
+        offline_hangover_frames: usize,
+        streaming_hangover_frames: usize,
+    ) -> Self {
         self.vad = Some(VadConfig {
-            detector: Arc::new(Mutex::new(detector)),
+            detector,
             offline_hangover_frames,
             streaming_hangover_frames,
         });
@@ -612,5 +631,38 @@ fn run_consumer(
                 &mut processed_samples,
             )
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::vad::PassthroughVad;
+
+    #[test]
+    fn with_vad_shared_reuses_the_passed_handle() {
+        let detector: Arc<Mutex<Box<dyn VoiceActivityDetector>>> =
+            Arc::new(Mutex::new(Box::new(PassthroughVad)));
+        let recorder = AudioRecorder::new()
+            .unwrap()
+            .with_vad_shared(Arc::clone(&detector), 5, 10);
+        assert!(recorder.vad.is_some(), "recorder should hold a VAD config");
+        // Caller holds one ref; the recorder's VadConfig holds the second.
+        assert_eq!(
+            Arc::strong_count(&detector),
+            2,
+            "handle must be shared, not cloned into a new Arc"
+        );
+    }
+
+    #[test]
+    fn with_vad_wraps_detector_in_a_fresh_handle() {
+        let recorder = AudioRecorder::new()
+            .unwrap()
+            .with_vad(Box::new(PassthroughVad), 5, 10);
+        assert!(
+            recorder.vad.is_some(),
+            "with_vad should still populate the VAD config"
+        );
     }
 }
