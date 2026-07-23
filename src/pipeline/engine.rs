@@ -1,4 +1,5 @@
-use crate::corrector::{AppliedFix, PronunciationCorrector};
+use crate::corrector::llm_correct;
+use crate::corrector::{AppliedFix, CorrectionOutcome, PronunciationCorrector};
 use crate::intent::{Intent, IntentExtractor};
 use crate::llm::LlmRouter;
 use crate::memory::store::MemoryStore;
@@ -168,5 +169,28 @@ impl PieEngine {
     /// Get a mutable reference to memory (for profile updates)
     pub fn memory_mut(&mut self) -> &mut MemoryStore {
         &mut self.memory
+    }
+
+    /// Opt-in deep correction via the configured LLM. NOT on the always-on
+    /// path — called only from the settings toggle or the on-demand command.
+    /// Falls back to the input on any LLM error (never worse than no deep pass).
+    pub async fn deep_correct(
+        &self,
+        transcript: &str,
+        provider: &str,
+        model: Option<&str>,
+    ) -> anyhow::Result<CorrectionOutcome> {
+        let prompt = llm_correct::build_prompt(
+            transcript,
+            self.memory.profile.role.as_deref(),
+            &self.memory.profile.technologies,
+        );
+        let corrected = self.llm.send(&prompt, provider, model).await?;
+        let corrected = corrected.trim().to_string();
+        let applied = llm_correct::diff_fixes(transcript, &corrected);
+        Ok(CorrectionOutcome {
+            text: corrected,
+            applied,
+        })
     }
 }

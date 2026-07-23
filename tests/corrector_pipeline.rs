@@ -41,3 +41,16 @@ async fn clean_input_is_unchanged_by_the_corrector() {
     );
     assert!(result.applied.is_empty());
 }
+
+#[tokio::test]
+async fn deep_correct_runs_through_the_echo_provider() {
+    let engine = PieEngine::new_ephemeral(temp_pron_path());
+    let out = engine
+        .deep_correct("deploy to coobernetes", "echo", None)
+        .await
+        .expect("deep");
+    // echo returns the full prompt (prefixed with "[PIE Echo]\n"), which includes
+    // the input transcript, so we can assert the call path works and the text
+    // contains the embedded input.
+    assert!(out.text.contains("coobernetes"));
+}

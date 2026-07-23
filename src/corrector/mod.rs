@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub mod dictionary;
+pub mod llm_correct;
 pub mod phonetic;
 pub mod static_seed;
 
