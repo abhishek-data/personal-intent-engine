@@ -4,6 +4,7 @@
 //! Extracts intent, maintains memory, optimizes prompts, routes to any LLM.
 
 pub mod audio;
+pub mod corrector;
 pub mod history;
 pub mod intent;
 pub mod llm;

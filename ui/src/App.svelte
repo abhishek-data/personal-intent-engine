@@ -9,6 +9,7 @@
   import OutputSettings from "./lib/OutputSettings.svelte";
   import HotkeyRecorder from "./lib/HotkeyRecorder.svelte";
   import HistorySettings from "./lib/HistorySettings.svelte";
+  import VocabularySettings from "./lib/VocabularySettings.svelte";
   import HistoryView from "./lib/HistoryView.svelte";
 
   let view = $state("record");
@@ -29,6 +30,7 @@
     hotkey: "CmdOrCtrl+Shift+Space",
     paste_output: "transcript",
     history_limit: 10,
+    deep_correct_ai: false,
   });
   let saved = $state(false);
   let savedTimer;
@@ -108,6 +110,18 @@
     if (!outcome) return;
     try { await invoke("copy_to_clipboard", { text: outcome.optimized_prompt }); }
     catch (e) { error = String(e); }
+  }
+
+  async function onRecorrect() {
+    if (!outcome) return;
+    llmBusy = true;
+    try {
+      outcome = await invoke("recorrect_with_ai", { transcript: outcome.transcript });
+    } catch (e) {
+      error = String(e);
+    } finally {
+      llmBusy = false;
+    }
   }
 
   const stateLabel = $derived(
@@ -198,6 +212,8 @@
       onCancel={cancelRecording}
       onSend={sendToLlm}
       onCopy={copyPrompt}
+      {onRecorrect}
+      onError={(e) => { error = e; }}
     />
   {:else if view === "models"}
     <ModelManager
@@ -216,6 +232,7 @@
     <TranscriptionSettings {settings} onSave={save} />
     <OutputSettings {settings} onSave={save} />
     <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }} />
+    <VocabularySettings {settings} onSave={save} onError={(e) => { error = e; }} />
     <HistorySettings {settings} onSave={save} />
   {/if}
 </div>

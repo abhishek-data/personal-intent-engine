@@ -223,13 +223,38 @@ impl IntentExtractor {
 
         // For tasks, try to extract the action
         if matches!(conv_type, ConversationType::Task) {
-            // Get the first sentence as the core objective
-            if let Some(first_sentence) = cleaned.split(&['.', ';', '\n'][..]).next() {
-                return first_sentence.trim().to_string();
-            }
+            // Get the first sentence as the core objective.
+            return match Self::first_sentence_end(&cleaned) {
+                Some(end) => cleaned[..end].trim().to_string(),
+                None => cleaned.trim().to_string(),
+            };
         }
 
         cleaned
+    }
+
+    /// Byte index of the first sentence-ending delimiter: `;`, `\n`, or a `.`
+    /// that is NOT immediately followed by a non-whitespace character.
+    ///
+    /// Plain `.split('.')` would shred mid-word periods in technical terms
+    /// like "Next.js" or "Node.js" into two fragments ("Next" + "js app"),
+    /// dropping the second half of the term. A `.` only ends a sentence here
+    /// when it's followed by whitespace or end-of-string.
+    fn first_sentence_end(text: &str) -> Option<usize> {
+        let bytes = text.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            match b {
+                b';' | b'\n' => return Some(i),
+                b'.' => {
+                    let is_boundary = bytes.get(i + 1).is_none_or(|c| c.is_ascii_whitespace());
+                    if is_boundary {
+                        return Some(i);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
     }
 }
 
@@ -312,5 +337,19 @@ mod tests {
     fn raw_input_is_preserved() {
         let intent = extract("explain lifetimes");
         assert_eq!(intent.raw_input, "explain lifetimes");
+    }
+
+    #[test]
+    fn objective_keeps_mid_word_periods_in_task_input() {
+        // A bare `.split('.')` would shred "Next.js" into "Next" + "js app",
+        // dropping the framework name from the objective.
+        let intent = extract("build a Next.js app");
+        assert_eq!(intent.objective, "build a Next.js app");
+    }
+
+    #[test]
+    fn objective_still_splits_on_real_sentence_boundaries() {
+        let intent = extract("build the API. It must use Postgres.");
+        assert_eq!(intent.objective, "build the API");
     }
 }

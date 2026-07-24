@@ -26,6 +26,8 @@ pub struct Settings {
     pub paste_output: String,
     /// Max number of recordings kept in the history store (hard cap).
     pub history_limit: usize,
+    /// When true, run the opt-in LLM deep-correct pass on every transcript.
+    pub deep_correct_ai: bool,
 }
 
 impl Default for Settings {
@@ -40,6 +42,7 @@ impl Default for Settings {
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
             paste_output: "transcript".to_string(),
             history_limit: 10,
+            deep_correct_ai: false,
         }
     }
 }
@@ -118,6 +121,7 @@ mod tests {
         let loaded: Settings = serde_json::from_str(r#"{"mode":"compact"}"#).unwrap();
         assert_eq!(loaded.mode, "compact");
         assert_eq!(loaded.language, "auto");
+        assert!(!loaded.deep_correct_ai);
     }
 
     #[test]

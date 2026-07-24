@@ -1,3 +1,5 @@
+use crate::corrector::llm_correct;
+use crate::corrector::{AppliedFix, CorrectionOutcome, PronunciationCorrector};
 use crate::intent::{Intent, IntentExtractor};
 use crate::llm::LlmRouter;
 use crate::memory::store::MemoryStore;
@@ -19,6 +21,12 @@ pub struct PieResult {
 
     /// Estimated token count
     pub estimated_tokens: usize,
+
+    /// The transcript after correction (what intent/optimize actually saw).
+    pub corrected_transcript: String,
+
+    /// Corrections applied to the transcript, for UI transparency.
+    pub applied: Vec<AppliedFix>,
 }
 
 /// The main PIE engine that orchestrates the full pipeline.
@@ -29,6 +37,7 @@ pub struct PieEngine {
     extractor: IntentExtractor,
     llm: LlmRouter,
     stt: Option<Box<dyn SttEngine>>,
+    corrector: PronunciationCorrector,
 }
 
 impl PieEngine {
@@ -37,13 +46,30 @@ impl PieEngine {
         let memory = MemoryStore::load();
         let extractor = IntentExtractor::new();
         let llm = LlmRouter::new();
+        let corrector = PronunciationCorrector::new();
 
         Ok(Self {
             memory,
             extractor,
             llm,
             stt: None,
+            corrector,
         })
+    }
+
+    /// Test/ephemeral engine: performs NO disk persistence. Memory lives only
+    /// in-process (never saved), and the corrector reads/writes an isolated
+    /// `user_dict_path` instead of the real user config — so integration tests
+    /// never touch or pollute real app data.
+    #[doc(hidden)]
+    pub fn new_ephemeral(user_dict_path: std::path::PathBuf) -> Self {
+        Self {
+            memory: MemoryStore::default(),
+            extractor: IntentExtractor::new(),
+            llm: LlmRouter::new(),
+            stt: None,
+            corrector: PronunciationCorrector::with_user_path(user_dict_path),
+        }
     }
 
     /// Attach a speech-to-text engine, enabling `process_audio`.
@@ -77,6 +103,19 @@ impl PieEngine {
     /// Process text input through the full PIE pipeline.
     /// Returns the extracted intent and optimized prompt.
     pub async fn process(&mut self, input: &str, mode: &str) -> anyhow::Result<PieResult> {
+        // Step 0: Correct speech-to-text jargon errors before anything else.
+        // Allow-set: terms the user is known to use, so static phonetic entries
+        // only fire for relevant terms. Derived from the profile's tech stack.
+        let allowed: std::collections::HashSet<String> = self
+            .memory
+            .profile
+            .technologies
+            .iter()
+            .map(|t| t.to_lowercase())
+            .collect();
+        let correction = self.corrector.correct(input, &allowed);
+        let input = correction.text.as_str();
+
         // Step 1: Extract intent
         let intent = self.extractor.extract(input);
 
@@ -107,6 +146,8 @@ impl PieEngine {
             optimized_prompt: optimized.text,
             mode: optimized.mode,
             estimated_tokens: optimized.estimated_tokens,
+            corrected_transcript: correction.text.clone(),
+            applied: correction.applied,
         })
     }
 
@@ -128,5 +169,44 @@ impl PieEngine {
     /// Get a mutable reference to memory (for profile updates)
     pub fn memory_mut(&mut self) -> &mut MemoryStore {
         &mut self.memory
+    }
+
+    /// The user's own heard->canonical corrections (for UI listing/editing).
+    pub fn corrector_user_corrections(&self) -> Vec<crate::corrector::Correction> {
+        self.corrector.user_corrections()
+    }
+
+    /// Add or update a user correction.
+    pub fn corrector_add(&mut self, heard: &str, canonical: &str) -> anyhow::Result<()> {
+        self.corrector.add_user_correction(heard, canonical)
+    }
+
+    /// Remove a user correction.
+    pub fn corrector_remove(&mut self, heard: &str) -> anyhow::Result<()> {
+        self.corrector.remove_user_correction(heard)
+    }
+
+    /// Opt-in deep correction via the configured LLM. NOT on the always-on
+    /// path — called only from the settings toggle or the on-demand command.
+    /// Returns `Err` on any LLM failure; callers decide whether to fall back to
+    /// the deterministic result (toggle path) or surface the error (on-demand).
+    pub async fn deep_correct(
+        &self,
+        transcript: &str,
+        provider: &str,
+        model: Option<&str>,
+    ) -> anyhow::Result<CorrectionOutcome> {
+        let prompt = llm_correct::build_prompt(
+            transcript,
+            self.memory.profile.role.as_deref(),
+            &self.memory.profile.technologies,
+        );
+        let corrected = self.llm.send(&prompt, provider, model).await?;
+        let corrected = corrected.trim().to_string();
+        let applied = llm_correct::diff_fixes(transcript, &corrected);
+        Ok(CorrectionOutcome {
+            text: corrected,
+            applied,
+        })
     }
 }
