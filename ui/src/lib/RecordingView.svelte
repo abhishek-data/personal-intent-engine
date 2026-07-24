@@ -1,11 +1,30 @@
 <script>
+  import { invoke } from "@tauri-apps/api/core";
   import { keycaps } from "./keycaps.js";
 
-  let { recState, outcome, llmResponse, llmBusy, hotkey, stateLabel, onToggle, onCancel, onSend, onCopy } = $props();
+  let {
+    recState, outcome, llmResponse, llmBusy, hotkey, stateLabel,
+    onToggle, onCancel, onSend, onCopy, onRecorrect, onError,
+  } = $props();
 
   // Render the user's actual configured hotkey as keycaps (⌘ ⇧ Space); when the
   // hotkey is disabled (empty) there is nothing to press, so the hint is hidden.
   const caps = $derived(keycaps(hotkey));
+
+  // Saving a fix the AI made moves it into the user's own dictionary, so the
+  // dictionary tier catches it instantly next time (no LLM round-trip needed).
+  // Reset per-fix "Saved" flags whenever a new outcome replaces this one.
+  let saved = $state({});
+  $effect(() => { outcome; saved = {}; });
+
+  async function saveFix(f) {
+    try {
+      await invoke("add_correction", { heard: f.from, canonical: f.to });
+      saved = { ...saved, [f.from]: true };
+    } catch (e) {
+      onError?.(String(e));
+    }
+  }
 </script>
 
 <div class="record-view">
@@ -15,6 +34,30 @@
         <div class="result-step">
           <span class="eyebrow">Heard</span>
           <p class="transcript">{outcome.transcript}</p>
+          {#if outcome.applied && outcome.applied.length}
+            <p class="corrected-note">
+              corrected
+              {#each outcome.applied as f}
+                <span class="fix">
+                  {f.from} → {f.to}
+                  {#if f.tier === "Llm"}
+                    <button
+                      class="fix-save"
+                      onclick={() => saveFix(f)}
+                      disabled={saved[f.from]}
+                      aria-label={`Save correction: ${f.from} to ${f.to}`}
+                    >{saved[f.from] ? "Saved" : "Save"}</button>
+                  {/if}
+                </span>
+              {/each}
+            </p>
+          {/if}
+          <button
+            class="text-btn"
+            onclick={onRecorrect}
+            disabled={llmBusy}
+            aria-label="Re-correct with AI"
+          >Re-correct with AI</button>
         </div>
 
         <div class="result-step">
