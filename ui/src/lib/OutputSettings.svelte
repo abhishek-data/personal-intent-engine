@@ -29,27 +29,16 @@
       PIE-structured prompt.
     </p>
   </div>
-  <div class="row">
-    <div class="field">
-      <label for="provider">LLM provider</label>
-      <select id="provider" bind:value={settings.provider} onchange={onSave}>
-        <option value="echo">Echo (debug)</option>
-        <option value="openai">OpenAI</option>
-        <option value="openrouter">OpenRouter</option>
-      </select>
-    </div>
-    <div class="field">
-      <label for="llm-model">Model</label>
-      <input
-        id="llm-model"
-        bind:value={settings.llm_model}
-        onblur={onSave}
-        placeholder="gpt-4o-mini"
-      />
-    </div>
+  <div class="field">
+    <label for="provider">LLM provider</label>
+    <select id="provider" bind:value={settings.provider} onchange={onSave}>
+      <option value="echo">Echo (debug)</option>
+      <option value="openai">OpenAI</option>
+      <option value="openrouter">OpenRouter</option>
+    </select>
   </div>
   <p class="caption">
-    Used by “Send to LLM”. OpenAI needs <code>OPENAI_API_KEY</code> in the
-    environment.
+    Used by “Send to LLM”. Configure the endpoint, API key, and model under
+    LLM Provider above.
   </p>
 </section>
