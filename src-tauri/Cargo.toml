@@ -1,6 +1,6 @@
 [package]
 name = "pie-desktop"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "PIE desktop app (Tauri)"
 license = "Apache-2.0"
