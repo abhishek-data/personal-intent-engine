@@ -31,12 +31,12 @@ Your audio never leaves your machine.
 
 ```
  ┌────────────────┐      ┌────────────────┐      ┌────────────────┐      ┌────────────────┐
- │ Spoken Thought │ ───► │   Local STT    │ ───► │ Intent Engine  │ ───► │ Prompt Output  │
+ │ Spoken Thought │ ───► │  Local STT +   │ ───► │ Intent Engine  │ ───► │ Prompt Output  │
+ │                │      │ Jargon Correct │      │                │      │                │
  └────────────────┘      └────────────────┘      └────────────────┘      └────────────────┘
-   "Can you set up         whisper.cpp +           Extracts:               Pasted at cursor
-    Docker & Postgres      Silero VAD (Metal       • Objective             or routed to
-    without an ORM?"       accelerated)            • Constraints           OpenAI / LLM API
-                                                   • Topics & Mode
+   "set up a next          whisper.cpp +           "next jazz" → Next.js   Pasted at cursor
+    jazz app with          Silero VAD, then        Extracts objective,     or routed to
+    postgres, no ORM"      fix dev jargon          constraints, mode       OpenAI / LLM API
 ```
 
 ---
@@ -46,16 +46,30 @@ Your audio never leaves your machine.
 - 🎙️ **Universal Global Hotkey** — Trigger recording (`⌘⇧Space`) from any application; results paste directly at your cursor.
 - 🔒 **100% On-Device Transcription** — High-speed, private speech-to-text powered by `whisper.cpp` with Apple Silicon Metal acceleration and Silero VAD.
 - 🧠 **Intent Extraction & Optimization** — Automatically strips filler and converts conversational speech into structured prompts (`compact`, `balanced`, `enhanced`, `adaptive`).
+- 🗣️ **Personal Pronunciation Corrector** — Fixes speech-to-text mangling of developer jargon (`next jazz` → `Next.js`, `coobernetes` → `Kubernetes`) using a built-in dictionary plus terms you teach it. Runs on-device; an optional AI pass handles novel garbling.
 - ⚡ **Direct AI Integration** — Optionally route prompts directly to OpenAI or any OpenAI-compatible API endpoint.
+- 🕘 **Local Recording History** — Every recording is saved to a local SQLite store you can revisit — nothing leaves your machine.
 - 🖥️ **Lightweight Tray App** — Runs silently in the menu bar with a customizable floating overlay.
 - 📦 **In-App Model Management** — Download and manage Whisper and Silero VAD models directly within the app.
 - 🛠️ **Developer Friendly** — Available as a desktop application, a standalone CLI tool, or a reusable Rust crate.
 
 ---
 
+## Personal Pronunciation Corrector
+
+Generic dictation garbles technical terms and never learns your vocabulary. PIE corrects them in layers, all on-device by default:
+
+1. **Built-in dictionary** — ships with common developer terms (`Next.js`, `Nginx`, `Kubernetes`, `PostgreSQL`, `kubectl`, …).
+2. **Your vocabulary** — teach PIE any `heard → correct` mapping from Settings; it is saved to `pronunciation.json` and applied instantly on every future recording.
+3. **AI deep-correct (opt-in)** — for novel mistakes the dictionary misses, an optional pass sends the transcript to your configured LLM (local or remote) to fix garbled terms only. Off by default; toggle it in Settings or hit **Re-correct with AI** on any result. One tap saves the fix into your vocabulary, so the next time is instant and offline.
+
+A phonetic tier is **context-gated** — it only corrects *toward* terms you actually use, so an ordinary word like "next" is never turned into "Next.js" unless you've told PIE you work with it. Every correction is shown on the result (`heard → corrected`) so nothing changes silently.
+
+---
+
 ## Quick Install
 
-Builds are **ad-hoc signed** (no Apple Developer ID), so macOS Gatekeeper would normally block them. The commands below strip the quarantine attribute (`xattr -cr`) so PIE opens cleanly.
+Builds are signed with a **stable self-signed certificate** (not an Apple Developer ID, so not notarized). macOS Gatekeeper still blocks un-notarized apps on first launch, so the commands below strip the quarantine attribute (`xattr -cr`) to open PIE cleanly. Because the certificate is stable across releases, your **Microphone and Accessibility permissions survive every update** rather than being re-prompted.
 
 ### macOS (Apple Silicon)
 
@@ -158,8 +172,11 @@ personal-intent-engine/
 ├── src/            # Core Rust library (pie-engine) & CLI (pie-cli)
 │   ├── audio/      # Audio capture, resampling, Silero VAD
 │   ├── stt/        # whisper.cpp STT integration
+│   ├── corrector/  # Pronunciation corrector (dictionary + phonetic + LLM deep-correct)
 │   ├── intent/     # Intent extraction & classification logic
 │   ├── optimizer/  # Prompt rewriting engines
+│   ├── memory/     # User profile & learned patterns
+│   ├── history/    # Local SQLite recording history
 │   └── llm/        # OpenAI-compatible API router
 ├── src-tauri/      # Tauri 2 Desktop container (pie-desktop)
 └── ui/             # Svelte 5 frontend (Control Panel & Recording Overlay)
@@ -179,6 +196,9 @@ Settings live at `~/Library/Application Support/pie/settings.json` and are manag
 | Provider / model | LLM target for "Send to LLM". `echo` reflects the prompt back for testing; `openai`/`openrouter` need `OPENAI_API_KEY`. |
 | Hotkey | Global shortcut, rebindable by pressing a combo. |
 | Paste output | Whether the hotkey pastes the raw transcript or the optimized prompt. |
+| Deep-correct with AI | Opt-in LLM pass that fixes garbled terms the dictionary misses. Off by default; uses your configured provider (local or remote). |
+| Vocabulary | Your personal `heard → correct` corrections (`pronunciation.json`), editable in Settings. |
+| History | Number of past recordings kept in the local SQLite history. |
 
 ---
 
