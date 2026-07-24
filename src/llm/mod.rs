@@ -1,4 +1,4 @@
 pub mod openai;
 pub mod router;
 
-pub use router::LlmRouter;
+pub use router::{LlmConfig, LlmRouter};
