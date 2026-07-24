@@ -2,13 +2,12 @@
 //! becomes its canonical form in the optimized prompt.
 
 use pie_engine::PieEngine;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static IT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn temp_pron_path() -> std::path::PathBuf {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let n = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .subsec_nanos();
+    let n = IT_COUNTER.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!("pie-it-pron-{}-{}.json", std::process::id(), n))
 }
 

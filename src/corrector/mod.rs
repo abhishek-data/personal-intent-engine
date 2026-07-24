@@ -198,23 +198,20 @@ fn load_user_dict(path: &std::path::Path) -> Vec<Correction> {
 mod tests {
     use super::PronunciationCorrector;
     use std::collections::HashSet;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    fn temp_path() -> std::path::PathBuf {
-        let mut p = std::env::temp_dir();
-        p.push(format!(
-            "pie-pron-{}.json",
-            std::process::id().wrapping_add(rand_suffix())
-        ));
-        p
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn unique_id() -> String {
+        format!(
+            "{}-{}",
+            std::process::id(),
+            TEST_COUNTER.fetch_add(1, Ordering::Relaxed)
+        )
     }
 
-    // Cheap unique-ish suffix without adding a dep.
-    fn rand_suffix() -> u32 {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .subsec_nanos()
+    fn temp_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("pie-pron-{}.json", unique_id()))
     }
 
     #[test]
@@ -263,7 +260,7 @@ mod tests {
     fn failed_persist_leaves_state_consistent() {
         // Make the parent path a regular file so create_dir_all fails.
         let mut file = std::env::temp_dir();
-        file.push(format!("pie-notadir-{}", rand_suffix()));
+        file.push(format!("pie-notadir-{}", unique_id()));
         std::fs::write(&file, b"x").unwrap();
         let bad_path = file.join("pronunciation.json"); // parent is a file
         let mut c = PronunciationCorrector::with_user_path(bad_path);
