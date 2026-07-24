@@ -57,6 +57,20 @@ impl PieEngine {
         })
     }
 
+    /// Initialize the engine with a BYOK LLM config (falls back to env vars
+    /// when the config URL is empty).
+    pub async fn with_config(config: &crate::llm::LlmConfig) -> anyhow::Result<Self> {
+        let mut engine = Self::new().await?;
+        engine.set_llm_config(config);
+        Ok(engine)
+    }
+
+    /// Rebuild the LLM router from a new config (e.g. after the user edits
+    /// LLM settings). Does not touch memory, STT, or the corrector.
+    pub fn set_llm_config(&mut self, config: &crate::llm::LlmConfig) {
+        self.llm = crate::llm::LlmRouter::from_config(config);
+    }
+
     /// Test/ephemeral engine: performs NO disk persistence. Memory lives only
     /// in-process (never saved), and the corrector reads/writes an isolated
     /// `user_dict_path` instead of the real user config — so integration tests
@@ -208,5 +222,35 @@ impl PieEngine {
             text: corrected,
             applied,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::LlmConfig;
+
+    #[tokio::test]
+    async fn with_config_uses_configured_client() {
+        let cfg = LlmConfig {
+            api_url: "https://api.example.com/v1".into(),
+            api_key: "sk-x".into(),
+            model: "gpt-4o-mini".into(),
+        };
+        let engine = PieEngine::with_config(&cfg).await.unwrap();
+        assert!(engine.llm.is_available("openai"));
+    }
+
+    #[tokio::test]
+    async fn set_llm_config_rebuilds_router() {
+        std::env::remove_var("OPENAI_API_KEY");
+        let mut engine = PieEngine::new().await.unwrap();
+        assert!(!engine.llm.is_available("openai"));
+        engine.set_llm_config(&LlmConfig {
+            api_url: "https://api.example.com/v1".into(),
+            api_key: "sk-x".into(),
+            model: String::new(),
+        });
+        assert!(engine.llm.is_available("openai"));
     }
 }
