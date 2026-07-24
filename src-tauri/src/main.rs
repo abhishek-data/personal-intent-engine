@@ -378,7 +378,7 @@ fn get_settings(state: State<'_, AppState>) -> Settings {
 }
 
 #[tauri::command]
-fn update_settings(
+async fn update_settings(
     app: AppHandle,
     state: State<'_, AppState>,
     settings: Settings,
@@ -394,7 +394,18 @@ fn update_settings(
     if hotkey_changed {
         register_hotkey(&app, &settings.hotkey)?;
     }
+    let llm_changed = {
+        let current = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+        current.llm_api_url != settings.llm_api_url
+            || current.llm_api_key != settings.llm_api_key
+            || current.llm_model != settings.llm_model
+    };
     settings.save().map_err(|e| e.to_string())?;
+    if llm_changed {
+        let cfg = llm_config(&settings);
+        let mut engine = state.engine.lock().await;
+        engine.set_llm_config(&cfg);
+    }
     *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
     Ok(())
 }
@@ -586,6 +597,25 @@ async fn send_to_llm(state: State<'_, AppState>, prompt: String) -> Result<Strin
         .map_err(|e| e.to_string())
 }
 
+/// Verify typed-but-unsaved LLM credentials with a minimal round-trip.
+/// Returns Ok("connected") on success, Err(message) otherwise.
+#[tauri::command]
+async fn test_llm_connection(url: String, key: String, model: String) -> Result<String, String> {
+    if url.trim().is_empty() {
+        return Err("API URL is required".to_string());
+    }
+    let client = pie_engine::llm::openai::OpenAiClient::new(&url, &key);
+    let model = if model.trim().is_empty() {
+        "gpt-4o-mini".to_string()
+    } else {
+        model
+    };
+    match client.chat("ping", &model).await {
+        Ok(_) => Ok("connected".to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 #[tauri::command]
 fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), String> {
     use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -753,6 +783,15 @@ fn model_opt(s: &Settings) -> Option<&str> {
     (!s.llm_model.is_empty()).then_some(s.llm_model.as_str())
 }
 
+/// Build the engine's LLM connection config from settings (BYOK).
+fn llm_config(s: &Settings) -> pie_engine::llm::LlmConfig {
+    pie_engine::llm::LlmConfig {
+        api_url: s.llm_api_url.clone(),
+        api_key: s.llm_api_key.clone(),
+        model: s.llm_model.clone(),
+    }
+}
+
 /// Load (or reuse) the whisper engine for the configured model + language.
 fn get_or_load_whisper(
     state: &State<'_, AppState>,
@@ -841,8 +880,9 @@ fn main() {
 
     builder
         .setup(|app| {
-            let engine = tauri::async_runtime::block_on(PieEngine::new())?;
             let settings = Settings::load();
+            let engine =
+                tauri::async_runtime::block_on(PieEngine::with_config(&llm_config(&settings)))?;
             let hotkey = settings.hotkey.clone();
             let history_path = dirs::config_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
@@ -932,6 +972,7 @@ fn main() {
             stop_recording,
             cancel_recording,
             send_to_llm,
+            test_llm_connection,
             copy_to_clipboard,
             list_history,
             delete_history_entry,
