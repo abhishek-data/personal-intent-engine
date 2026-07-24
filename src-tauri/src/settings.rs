@@ -18,6 +18,10 @@ pub struct Settings {
     pub provider: String,
     /// LLM model name (empty = provider default)
     pub llm_model: String,
+    /// OpenAI-compatible base URL for BYOK (empty = fall back to env vars).
+    pub llm_api_url: String,
+    /// API key / bearer token for BYOK (empty = none / local server).
+    pub llm_api_key: String,
     /// Global shortcut that toggles recording from any app
     /// (tauri-plugin-global-shortcut syntax, e.g. "CmdOrCtrl+Shift+Space")
     pub hotkey: String,
@@ -39,6 +43,8 @@ impl Default for Settings {
             mode: "balanced".to_string(),
             provider: "echo".to_string(),
             llm_model: String::new(),
+            llm_api_url: String::new(),
+            llm_api_key: String::new(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
             paste_output: "transcript".to_string(),
             history_limit: 10,
@@ -129,5 +135,22 @@ mod tests {
         let expanded = Settings::expand("~/models/x.bin");
         assert!(!expanded.to_string_lossy().starts_with('~'));
         assert!(expanded.to_string_lossy().ends_with("models/x.bin"));
+    }
+
+    #[test]
+    fn byok_fields_default_empty_and_roundtrip() {
+        let loaded: Settings = serde_json::from_str(r#"{"mode":"compact"}"#).unwrap();
+        assert_eq!(loaded.llm_api_url, "");
+        assert_eq!(loaded.llm_api_key, "");
+
+        let s = Settings {
+            llm_api_url: "https://api.openai.com/v1".into(),
+            llm_api_key: "sk-abc".into(),
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.llm_api_url, "https://api.openai.com/v1");
+        assert_eq!(back.llm_api_key, "sk-abc");
     }
 }
