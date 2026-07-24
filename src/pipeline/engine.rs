@@ -171,6 +171,21 @@ impl PieEngine {
         &mut self.memory
     }
 
+    /// The user's own heard->canonical corrections (for UI listing/editing).
+    pub fn corrector_user_corrections(&self) -> Vec<crate::corrector::Correction> {
+        self.corrector.user_corrections()
+    }
+
+    /// Add or update a user correction.
+    pub fn corrector_add(&mut self, heard: &str, canonical: &str) -> anyhow::Result<()> {
+        self.corrector.add_user_correction(heard, canonical)
+    }
+
+    /// Remove a user correction.
+    pub fn corrector_remove(&mut self, heard: &str) -> anyhow::Result<()> {
+        self.corrector.remove_user_correction(heard)
+    }
+
     /// Opt-in deep correction via the configured LLM. NOT on the always-on
     /// path — called only from the settings toggle or the on-demand command.
     /// Returns `Err` on any LLM failure; callers decide whether to fall back to

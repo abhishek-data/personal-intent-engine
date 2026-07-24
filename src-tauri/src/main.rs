@@ -59,6 +59,16 @@ struct Outcome {
     optimized_prompt: String,
     estimated_tokens: usize,
     mode: String,
+    applied: Vec<AppliedFixDto>,
+}
+
+/// A single pronunciation correction applied to the transcript, surfaced to
+/// the frontend for transparency (e.g. "next jazz" -> "Next.js").
+#[derive(Clone, Serialize)]
+struct AppliedFixDto {
+    from: String,
+    to: String,
+    tier: String,
 }
 
 /// Emit an event to the frontend, logging (rather than silently dropping) any
@@ -191,16 +201,51 @@ async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Ou
         .process(&transcript, &settings.mode)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Opt-in deep correction (off the always-on path): re-run the LLM pass over
+    // the deterministic result and fold in any extra fixes it finds. Never
+    // fails the recording — an LLM error just falls back to the deterministic
+    // transcript already computed above.
+    let (final_transcript, applied_fixes) = if settings.deep_correct_ai {
+        match engine
+            .deep_correct(
+                &result.corrected_transcript,
+                &settings.provider,
+                model_opt(&settings),
+            )
+            .await
+        {
+            Ok(deep) => {
+                let mut applied = result.applied.clone();
+                applied.extend(deep.applied);
+                (deep.text, applied)
+            }
+            Err(e) => {
+                log::warn!("deep-correct failed, using deterministic result: {e}");
+                (result.corrected_transcript.clone(), result.applied.clone())
+            }
+        }
+    } else {
+        (result.corrected_transcript.clone(), result.applied.clone())
+    };
     drop(engine);
 
     let outcome = Outcome {
-        transcript,
+        transcript: final_transcript,
         objective: result.intent.objective,
         conversation_type: format!("{:?}", result.intent.conversation_type),
         confidence: format!("{:?}", result.intent.confidence),
         optimized_prompt: result.optimized_prompt,
         estimated_tokens: result.estimated_tokens,
         mode: format!("{:?}", result.mode),
+        applied: applied_fixes
+            .iter()
+            .map(|f| AppliedFixDto {
+                from: f.from.clone(),
+                to: f.to.clone(),
+                tier: format!("{:?}", f.tier),
+            })
+            .collect(),
     };
 
     // Best-effort history capture — never fail the recording over it.
@@ -612,11 +657,100 @@ fn paste_history_entry(
     paste::paste_text(&app, &enigo, &text)
 }
 
+/// A user-defined heard->canonical pronunciation correction.
+#[derive(Clone, Serialize)]
+struct CorrectionDto {
+    heard: String,
+    canonical: String,
+}
+
+#[tauri::command]
+async fn list_corrections(state: State<'_, AppState>) -> Result<Vec<CorrectionDto>, String> {
+    let engine = state.engine.lock().await;
+    Ok(engine
+        .corrector_user_corrections()
+        .into_iter()
+        .map(|c| CorrectionDto {
+            heard: c.heard,
+            canonical: c.canonical,
+        })
+        .collect())
+}
+
+#[tauri::command]
+async fn add_correction(
+    state: State<'_, AppState>,
+    heard: String,
+    canonical: String,
+) -> Result<(), String> {
+    let mut engine = state.engine.lock().await;
+    engine
+        .corrector_add(&heard, &canonical)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_correction(state: State<'_, AppState>, heard: String) -> Result<(), String> {
+    let mut engine = state.engine.lock().await;
+    engine.corrector_remove(&heard).map_err(|e| e.to_string())
+}
+
+/// On-demand deep-correct: run the LLM pass over an already-produced
+/// transcript (e.g. from a past recording) and re-derive intent/optimization
+/// from the corrected text, without re-recording.
+#[tauri::command]
+async fn recorrect_with_ai(
+    state: State<'_, AppState>,
+    transcript: String,
+) -> Result<Outcome, String> {
+    let settings = {
+        state
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    };
+    let mut engine = state.engine.lock().await;
+    let deep = engine
+        .deep_correct(&transcript, &settings.provider, model_opt(&settings))
+        .await
+        .map_err(|e| e.to_string())?;
+    // Re-run intent/optimize on the deep-corrected text for a fresh Outcome.
+    let result = engine
+        .process(&deep.text, &settings.mode)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(Outcome {
+        transcript: deep.text,
+        objective: result.intent.objective,
+        conversation_type: format!("{:?}", result.intent.conversation_type),
+        confidence: format!("{:?}", result.intent.confidence),
+        optimized_prompt: result.optimized_prompt,
+        estimated_tokens: result.estimated_tokens,
+        mode: format!("{:?}", result.mode),
+        applied: deep
+            .applied
+            .iter()
+            .map(|f| AppliedFixDto {
+                from: f.from.clone(),
+                to: f.to.clone(),
+                tier: format!("{:?}", f.tier),
+            })
+            .collect(),
+    })
+}
+
 /* ─── helpers ─── */
 
 /// Map an empty string to `None` so blank optimizer fields aren't stored.
 fn opt(s: &str) -> Option<String> {
     (!s.is_empty()).then(|| s.to_string())
+}
+
+/// Map an empty `llm_model` setting to `None` so the router falls back to the
+/// provider's default model.
+fn model_opt(s: &Settings) -> Option<&str> {
+    (!s.llm_model.is_empty()).then_some(s.llm_model.as_str())
 }
 
 /// Load (or reuse) the whisper engine for the configured model + language.
@@ -807,6 +941,10 @@ fn main() {
             select_model,
             delete_model,
             download_model,
+            list_corrections,
+            add_correction,
+            delete_correction,
+            recorrect_with_ai,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PIE");
