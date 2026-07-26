@@ -221,6 +221,7 @@ impl PieEngine {
             OptimizationMode::Balanced => balanced::optimize(&intent, &self.memory),
             OptimizationMode::Enhanced => enhanced::optimize(&intent, &self.memory),
             OptimizationMode::Adaptive => adaptive::optimize(&intent, &self.memory),
+            OptimizationMode::Refine => balanced::optimize(&intent, &self.memory), // Task 2 will implement refine properly
         };
 
         // Step 4: Save memory

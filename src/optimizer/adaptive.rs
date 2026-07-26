@@ -12,6 +12,7 @@ pub fn optimize(intent: &Intent, memory: &MemoryStore) -> OptimizedPrompt {
         OptimizationMode::Balanced => balanced::optimize(intent, memory),
         OptimizationMode::Enhanced => enhanced::optimize(intent, memory),
         OptimizationMode::Adaptive => balanced::optimize(intent, memory), // fallback
+        OptimizationMode::Refine => balanced::optimize(intent, memory), // adaptive mode doesn't select refine
     }
 }
 
