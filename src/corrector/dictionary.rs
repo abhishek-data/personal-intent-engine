@@ -6,6 +6,8 @@ use super::{AppliedFix, CorrectionOutcome, Tier};
 pub enum Source {
     Static,
     User,
+    Synced,      // from initial vocabulary sync (Phase 3)
+    AutoLearned, // from the background learner
 }
 
 /// One heard->canonical mapping.
