@@ -8,12 +8,23 @@
   let corrections = $state([]);
   let heard = $state("");
   let canonical = $state("");
+  let learnedCount = $state(0);
 
   async function refresh() {
-    try { corrections = await invoke("list_corrections"); }
+    try {
+      corrections = await invoke("list_corrections");
+      learnedCount = await invoke("get_learned_vocab_count");
+    }
     catch (e) { onError(String(e)); }
   }
   refresh();
+
+  async function resetLearned() {
+    try {
+      await invoke("reset_learned_vocab");
+      await refresh();
+    } catch (e) { onError(String(e)); }
+  }
 
   async function add() {
     if (!heard.trim() || !canonical.trim()) return;
@@ -49,6 +60,31 @@
         </span>
       </span>
     </label>
+  </div>
+
+  <div class="field">
+    <label class="toggle-row">
+      <input
+        type="checkbox"
+        bind:checked={settings.background_mining}
+        onchange={onSave}
+      />
+      <span>
+        <span class="field-label toggle-label">Background learning</span>
+        <span class="caption toggle-caption">
+          Mine new pronunciation corrections from your transcripts using the
+          configured LLM, in the background. Takes effect on restart.
+        </span>
+      </span>
+    </label>
+  </div>
+
+  <div class="field">
+    <span class="field-label">Learned vocabulary</span>
+    <p class="caption">{learnedCount} terms learned automatically</p>
+    <button class="btn sm" onclick={resetLearned} aria-label="Reset learned vocabulary">
+      Reset learned
+    </button>
   </div>
 
   <div class="field">

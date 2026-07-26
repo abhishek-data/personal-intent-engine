@@ -32,6 +32,9 @@ pub struct Settings {
     pub history_limit: usize,
     /// When true, run the opt-in LLM deep-correct pass on every transcript.
     pub deep_correct_ai: bool,
+    /// When true, run the opt-in background learner that mines new
+    /// pronunciation corrections from transcripts via the configured LLM.
+    pub background_mining: bool,
 }
 
 impl Default for Settings {
@@ -49,6 +52,7 @@ impl Default for Settings {
             paste_output: "transcript".to_string(),
             history_limit: 10,
             deep_correct_ai: false,
+            background_mining: false,
         }
     }
 }
@@ -128,6 +132,18 @@ mod tests {
         assert_eq!(loaded.mode, "compact");
         assert_eq!(loaded.language, "auto");
         assert!(!loaded.deep_correct_ai);
+        assert!(!loaded.background_mining);
+    }
+
+    #[test]
+    fn background_mining_roundtrips() {
+        let s = Settings {
+            background_mining: true,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert!(back.background_mining);
     }
 
     #[test]

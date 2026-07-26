@@ -9,11 +9,14 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub mod dictionary;
+pub mod learned;
+pub mod learner;
 pub mod llm_correct;
 pub mod phonetic;
 pub mod static_seed;
 
 pub use dictionary::{Correction, CorrectionDict, Source};
+use learned::{LearnedSource, LearnedStore};
 
 /// Which tier produced a fix — surfaced to the UI for transparency.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +47,8 @@ pub struct PronunciationCorrector {
     dict: CorrectionDict,
     user: Vec<Correction>,
     user_path: Option<PathBuf>,
+    learned: LearnedStore,
+    learned_path: Option<PathBuf>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -55,28 +60,62 @@ struct UserEntry {
 impl PronunciationCorrector {
     /// Build from the embedded seed + the user dict at the default path.
     pub fn new() -> Self {
-        Self::with_user_path(default_user_path())
+        Self::with_paths(default_user_path(), default_learned_path())
     }
 
-    /// Build from the embedded seed + the user dict at `path` (test seam).
+    /// Build from the user dict at `path`, with learned vocab at the default
+    /// learned path (test seam preserving the old single-path signature).
     pub fn with_user_path(path: PathBuf) -> Self {
-        let user = load_user_dict(&path);
+        Self::with_paths(path, default_learned_path())
+    }
+
+    /// Build with explicit user + learned paths (full test seam).
+    pub fn with_paths(user_path: PathBuf, learned_path: PathBuf) -> Self {
+        let user = load_user_dict(&user_path);
+        let learned = LearnedStore::load(learned_path.clone());
         let mut c = Self {
             dict: CorrectionDict::from_entries(Vec::new()),
             user,
-            user_path: Some(path),
+            user_path: Some(user_path),
+            learned,
+            learned_path: Some(learned_path),
         };
         c.rebuild();
         c
     }
 
-    /// Recompile the combined dictionary. User entries come first so they
-    /// override static entries with the same heard key.
+    /// Recompile the combined dictionary. Precedence, highest first:
+    /// User -> Synced -> AutoLearned -> Static. A heard key seen at a higher
+    /// tier suppresses the same key at every lower tier.
     fn rebuild(&mut self) {
-        let mut entries: Vec<Correction> = self.user.clone();
-        let user_heards: HashSet<String> = self.user.iter().map(|e| e.heard.clone()).collect();
+        let mut entries: Vec<Correction> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+
+        // Tier 1: user.
+        for e in &self.user {
+            if seen.insert(e.heard.clone()) {
+                entries.push(e.clone());
+            }
+        }
+        // Tier 2/3: learned — synced first, then auto.
+        for want in [LearnedSource::Sync, LearnedSource::Auto] {
+            for le in self.learned.entries().iter().filter(|e| e.source == want) {
+                let heard = le.heard.to_lowercase();
+                if seen.insert(heard.clone()) {
+                    entries.push(Correction {
+                        heard,
+                        canonical: le.canonical.clone(),
+                        source: match want {
+                            LearnedSource::Sync => Source::Synced,
+                            LearnedSource::Auto => Source::AutoLearned,
+                        },
+                    });
+                }
+            }
+        }
+        // Tier 4: static seed.
         for e in static_seed::load() {
-            if !user_heards.contains(&e.heard) {
+            if seen.insert(e.heard.clone()) {
                 entries.push(e);
             }
         }
@@ -143,6 +182,72 @@ impl PronunciationCorrector {
         Ok(())
     }
 
+    /// Add or reinforce an auto-learned correction, then recompile.
+    pub fn add_auto_correction(&mut self, heard: &str, canonical: &str) -> anyhow::Result<()> {
+        self.learned
+            .add_or_reinforce(heard, canonical, LearnedSource::Auto)?;
+        self.rebuild();
+        Ok(())
+    }
+
+    /// Add or reinforce a synced correction (Phase 3), then recompile.
+    pub fn add_synced_correction(&mut self, heard: &str, canonical: &str) -> anyhow::Result<()> {
+        self.learned
+            .add_or_reinforce(heard, canonical, LearnedSource::Sync)?;
+        self.rebuild();
+        Ok(())
+    }
+
+    /// Reinforce an existing learned entry (bumps confidence/seen_count).
+    /// Returns whether a learned entry matched. No rebuild needed (mappings
+    /// are unchanged; only metadata moves).
+    pub fn reinforce_learned(&mut self, heard: &str) -> anyhow::Result<bool> {
+        self.learned.reinforce(heard)
+    }
+
+    /// Check if a learned entry with the given heard key exists.
+    pub fn has_learned(&self, heard: &str) -> bool {
+        self.learned.has_entry(heard)
+    }
+
+    /// Number of learned entries (auto + synced).
+    pub fn learned_count(&self) -> usize {
+        self.learned.count()
+    }
+
+    /// The `seen_count` of the matching learned entry, if any.
+    pub fn learned_entries_seen(&self, heard: &str) -> Option<u32> {
+        let key = heard.trim().to_lowercase();
+        self.learned
+            .entries()
+            .iter()
+            .find(|e| e.heard == key)
+            .map(|e| e.seen_count)
+    }
+
+    /// Clear learned/synced vocab (never touches the user dict), then recompile.
+    pub fn reset_learned(&mut self) -> anyhow::Result<()> {
+        self.learned.reset()?;
+        self.rebuild();
+        Ok(())
+    }
+
+    /// Reload the learned store from disk and recompile. Returns whether the
+    /// entry count changed (used by the engine to reload after the background
+    /// learner appends). Cheap no-op when nothing changed on disk.
+    pub fn reload_learned(&mut self) -> bool {
+        let before = self.learned.count();
+        if let Some(path) = self.learned_path() {
+            self.learned = LearnedStore::load(path);
+            self.rebuild();
+        }
+        self.learned.count() != before
+    }
+
+    fn learned_path(&self) -> Option<PathBuf> {
+        self.learned_path.clone()
+    }
+
     fn persist_entries(path: &Option<PathBuf>, user: &[Correction]) -> anyhow::Result<()> {
         if let Some(path) = path {
             if let Some(parent) = path.parent() {
@@ -172,6 +277,14 @@ fn default_user_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("pie")
         .join("pronunciation.json")
+}
+
+/// Default on-disk location for the learned/synced vocabulary store.
+fn default_learned_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("pie")
+        .join("learned_vocab.json")
 }
 
 fn load_user_dict(path: &std::path::Path) -> Vec<Correction> {
@@ -214,9 +327,63 @@ mod tests {
         std::env::temp_dir().join(format!("pie-pron-{}.json", unique_id()))
     }
 
+    fn temp_learned_path() -> std::path::PathBuf {
+        // Distinct prefix from learned.rs's own `pie-learned-*` test files:
+        // both modules build `{pid}-{counter}` from independent counters, so a
+        // shared prefix collides across modules under parallel `cargo test`.
+        std::env::temp_dir().join(format!("pie-mod-learned-{}.json", unique_id()))
+    }
+
+    #[test]
+    fn auto_learned_entry_corrects_and_is_counted() {
+        let c_path = temp_path();
+        let l_path = temp_learned_path();
+        let mut c = PronunciationCorrector::with_paths(c_path.clone(), l_path.clone());
+        c.add_auto_correction("terra form", "Terraform").unwrap();
+        assert_eq!(c.learned_count(), 1);
+        let out = c.correct("i use terra form daily", &std::collections::HashSet::new());
+        assert_eq!(out.text, "i use Terraform daily");
+        let _ = std::fs::remove_file(c_path);
+        let _ = std::fs::remove_file(l_path);
+    }
+
+    #[test]
+    fn user_entry_overrides_learned_same_heard() {
+        let c_path = temp_path();
+        let l_path = temp_learned_path();
+        let mut c = PronunciationCorrector::with_paths(c_path.clone(), l_path.clone());
+        c.add_auto_correction("react", "React").unwrap();
+        c.add_user_correction("react", "ReactJS").unwrap();
+        let out = c.correct("i love react", &std::collections::HashSet::new());
+        assert_eq!(
+            out.text, "i love ReactJS",
+            "user tier must win over learned"
+        );
+        let _ = std::fs::remove_file(c_path);
+        let _ = std::fs::remove_file(l_path);
+    }
+
+    #[test]
+    fn reset_learned_keeps_user_entries() {
+        let c_path = temp_path();
+        let l_path = temp_learned_path();
+        let mut c = PronunciationCorrector::with_paths(c_path.clone(), l_path.clone());
+        c.add_user_correction("svelte", "Svelte").unwrap();
+        c.add_auto_correction("terra form", "Terraform").unwrap();
+        c.reset_learned().unwrap();
+        assert_eq!(c.learned_count(), 0);
+        assert_eq!(
+            c.user_corrections().len(),
+            1,
+            "user dict must survive reset"
+        );
+        let _ = std::fs::remove_file(c_path);
+        let _ = std::fs::remove_file(l_path);
+    }
+
     #[test]
     fn correct_applies_static_exact_then_returns_outcome() {
-        let c = PronunciationCorrector::with_user_path(temp_path());
+        let c = PronunciationCorrector::with_paths(temp_path(), temp_learned_path());
         let out = c.correct("build a next jazz app", &HashSet::new());
         assert_eq!(out.text, "build a Next.js app");
     }
@@ -224,7 +391,7 @@ mod tests {
     #[test]
     fn user_entry_overrides_static_same_heard() {
         let path = temp_path();
-        let mut c = PronunciationCorrector::with_user_path(path.clone());
+        let mut c = PronunciationCorrector::with_paths(path.clone(), temp_learned_path());
         c.add_user_correction("kubernetes", "K8s").unwrap();
         let out = c.correct("i love kubernetes", &HashSet::new());
         assert_eq!(out.text, "i love K8s");
@@ -234,11 +401,12 @@ mod tests {
     #[test]
     fn user_dict_roundtrips_through_disk() {
         let path = temp_path();
+        let l_path = temp_learned_path();
         {
-            let mut c = PronunciationCorrector::with_user_path(path.clone());
+            let mut c = PronunciationCorrector::with_paths(path.clone(), l_path.clone());
             c.add_user_correction("react", "React").unwrap();
         }
-        let c2 = PronunciationCorrector::with_user_path(path.clone());
+        let c2 = PronunciationCorrector::with_paths(path.clone(), l_path.clone());
         assert!(c2
             .user_corrections()
             .iter()
@@ -249,7 +417,7 @@ mod tests {
     #[test]
     fn remove_user_correction_deletes_it() {
         let path = temp_path();
-        let mut c = PronunciationCorrector::with_user_path(path.clone());
+        let mut c = PronunciationCorrector::with_paths(path.clone(), temp_learned_path());
         c.add_user_correction("svelte", "Svelte").unwrap();
         c.remove_user_correction("svelte").unwrap();
         assert!(c.user_corrections().is_empty());
@@ -263,7 +431,7 @@ mod tests {
         file.push(format!("pie-notadir-{}", unique_id()));
         std::fs::write(&file, b"x").unwrap();
         let bad_path = file.join("pronunciation.json"); // parent is a file
-        let mut c = PronunciationCorrector::with_user_path(bad_path);
+        let mut c = PronunciationCorrector::with_paths(bad_path, temp_learned_path());
         let res = c.add_user_correction("kubernetes", "K8s");
         assert!(res.is_err(), "persist to a bad path must error");
         // In-memory state must not have drifted.

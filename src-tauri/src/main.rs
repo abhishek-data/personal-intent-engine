@@ -728,6 +728,20 @@ async fn delete_correction(state: State<'_, AppState>, heard: String) -> Result<
     engine.corrector_remove(&heard).map_err(|e| e.to_string())
 }
 
+/// Number of learned (auto-mined + synced) corrections, for the vocab UI.
+#[tauri::command]
+async fn get_learned_vocab_count(state: State<'_, AppState>) -> Result<usize, String> {
+    let engine = state.engine.lock().await;
+    Ok(engine.corrector_learned_count())
+}
+
+/// Clear all learned/synced corrections (user corrections are untouched).
+#[tauri::command]
+async fn reset_learned_vocab(state: State<'_, AppState>) -> Result<(), String> {
+    let mut engine = state.engine.lock().await;
+    engine.corrector_reset_learned().map_err(|e| e.to_string())
+}
+
 /// On-demand deep-correct: run the LLM pass over an already-produced
 /// transcript (e.g. from a past recording) and re-derive intent/optimization
 /// from the corrected text, without re-recording.
@@ -895,6 +909,17 @@ fn main() {
                 log::error!("Failed to open history DB ({e}); using in-memory");
                 HistoryStore::open_in_memory().expect("in-memory history must open")
             });
+            // Capture what the background learner needs before `settings` is
+            // moved into `AppState` below.
+            let mining = settings.background_mining;
+            let learner_cfg = llm_config(&settings);
+            let learner_provider = settings.provider.clone();
+            let learner_model =
+                (!settings.llm_model.is_empty()).then(|| settings.llm_model.clone());
+            let learned_vocab_path = dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("pie")
+                .join("learned_vocab.json");
             app.manage(AppState {
                 settings: Mutex::new(settings),
                 recorder: Mutex::new(None),
@@ -905,6 +930,31 @@ fn main() {
                 history: Mutex::new(history),
             });
             app.manage(EnigoState::new());
+
+            // Opt-in background learner: mines new pronunciation corrections
+            // from transcripts via the configured LLM. OFF by default, so no
+            // background LLM calls happen unless the user enables it.
+            if mining {
+                let (tx, rx) =
+                    tokio::sync::mpsc::channel::<pie_engine::pipeline::engine::LearnTask>(100);
+                {
+                    let state = app.state::<AppState>();
+                    // Attach the sender to the engine so process() fires tasks.
+                    tauri::async_runtime::block_on(async {
+                        state.engine.lock().await.set_learner_tx(tx);
+                    });
+                }
+                let llm = pie_engine::llm::LlmRouter::from_config(&learner_cfg);
+                let learner = pie_engine::corrector::learner::BackgroundLearner::new(
+                    rx,
+                    llm,
+                    learned_vocab_path,
+                    learner_provider,
+                    learner_model,
+                    std::collections::HashSet::new(),
+                );
+                tauri::async_runtime::spawn(async move { learner.run().await });
+            }
 
             if let Err(e) = register_hotkey(app.handle(), &hotkey) {
                 // A bad hotkey must not prevent the app from starting.
@@ -989,6 +1039,8 @@ fn main() {
             add_correction,
             delete_correction,
             recorrect_with_ai,
+            get_learned_vocab_count,
+            reset_learned_vocab,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PIE");
