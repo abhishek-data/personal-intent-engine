@@ -185,6 +185,13 @@ impl PieEngine {
         let correction = self.corrector.correct(input, &allowed);
         for fix in &correction.applied {
             // `from` is the lowercased heard phrase; reinforce if it's learned.
+            // NOTE: when background mining is on, this reinforcement and the
+            // learner's `run()` (learner.rs) are two independent writers of
+            // learned_vocab.json, each doing load-modify-save from its own
+            // snapshot, so a concurrent write can lose an update. Bounded to
+            // opt-in auto-learned vocab (never user/static data); it self-heals
+            // on the next mtime reload. Planned fix: funnel writes through a
+            // single owner (tracked follow-up).
             let _ = self.corrector.reinforce_learned(&fix.from);
         }
         let input = correction.text.as_str();

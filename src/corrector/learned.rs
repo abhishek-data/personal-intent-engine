@@ -56,12 +56,31 @@ impl LearnedStore {
     }
 
     /// Persist the current entries as pretty JSON. No-op without a path.
+    ///
+    /// Writes to a temp file in the same directory then renames over the
+    /// target, so a concurrent reader always observes either the old or the
+    /// new complete file, never a torn write (rename is atomic on the same
+    /// filesystem).
     pub fn save(&self) -> anyhow::Result<()> {
         if let Some(path) = &self.path {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::write(path, serde_json::to_string_pretty(&self.entries)?)?;
+            let json = serde_json::to_string_pretty(&self.entries)?;
+            // Unique per-process, per-call name so two concurrent writers
+            // never clobber the same temp file before either renames.
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let file_name = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "learned".to_string());
+            let tmp_name = format!("{file_name}.{}.{nanos}.tmp", std::process::id());
+            let tmp = path.with_file_name(tmp_name);
+            std::fs::write(&tmp, json)?;
+            std::fs::rename(&tmp, path)?;
         }
         Ok(())
     }

@@ -73,9 +73,11 @@ pub struct BackgroundLearner {
 }
 
 impl BackgroundLearner {
-    /// Build a new background learner. `known` should be pre-seeded with the
-    /// `heard` keys already present across every correction tier so the
-    /// learner never re-mines terms that are already handled.
+    /// Build a new background learner. `known` starts empty at the call site
+    /// (main.rs) rather than pre-seeded from existing correction tiers;
+    /// duplicate mining is instead prevented per-batch by the on-disk
+    /// `has_entry` check against the learned store. Pre-seeding `known` from
+    /// the current dict is a deferred future refinement.
     pub fn new(
         rx: mpsc::Receiver<LearnTask>,
         llm: LlmRouter,
@@ -134,6 +136,13 @@ impl BackgroundLearner {
             if terms.is_empty() {
                 continue;
             }
+            // NOTE: when background mining is on, this load-modify-save and the
+            // engine's `reinforce_learned` call in pipeline/engine.rs are two
+            // independent writers of learned_vocab.json, each from its own
+            // snapshot, so a concurrent write can lose an update. Bounded to
+            // opt-in auto-learned vocab (never user/static data); it self-heals
+            // on the next mtime reload. Planned fix: funnel writes through a
+            // single owner (tracked follow-up).
             let mut store = LearnedStore::load(self.learned_path.clone());
             for t in terms {
                 let key = t.heard.trim().to_lowercase();
