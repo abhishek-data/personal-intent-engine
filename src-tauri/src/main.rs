@@ -787,6 +787,117 @@ async fn recorrect_with_ai(
     })
 }
 
+/// An auto-detected local source of past conversations, for the vocabulary
+/// sync UI to offer alongside manual folder/file import.
+#[derive(Clone, Serialize)]
+struct SyncSourceDto {
+    name: String,
+    path: String,
+}
+
+/// Outcome of a vocabulary sync run, for the frontend summary.
+#[derive(Clone, Serialize)]
+struct SyncResultDto {
+    conversations: usize,
+    terms_added: usize,
+}
+
+/// Persisted record of the last vocabulary sync, for the settings UI.
+#[derive(Clone, Serialize)]
+struct SyncStateDto {
+    last_run_unix: u64,
+    terms_added: usize,
+}
+
+/// Open a native folder or file picker for vocabulary import. Returns the
+/// chosen path, or `None` if the user cancelled.
+#[tauri::command]
+async fn pick_import_target(folder: bool) -> Result<Option<String>, String> {
+    let picked = if folder {
+        rfd::FileDialog::new().pick_folder()
+    } else {
+        rfd::FileDialog::new()
+            .add_filter("conversations", &["json", "md", "txt", "markdown"])
+            .pick_file()
+    };
+    Ok(picked.map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Auto-detect local sources of past conversations. Currently checks for
+/// Cursor's `state.vscdb` (macOS/Linux paths). The manual import option is
+/// always surfaced by the frontend regardless of this result.
+#[tauri::command]
+fn discover_sync_sources() -> Result<Vec<SyncSourceDto>, String> {
+    let mut sources = Vec::new();
+
+    let cursor_vscdb = if cfg!(target_os = "macos") {
+        dirs::home_dir()
+            .map(|h| h.join("Library/Application Support/Cursor/User/globalStorage/state.vscdb"))
+    } else {
+        dirs::home_dir().map(|h| h.join(".config/Cursor/User/globalStorage/state.vscdb"))
+    };
+
+    if let Some(path) = cursor_vscdb {
+        if path.exists() {
+            sources.push(SyncSourceDto {
+                name: "Cursor".to_string(),
+                path: path.to_string_lossy().to_string(),
+            });
+        }
+    }
+
+    Ok(sources)
+}
+
+/// Run a vocabulary sync over the given paths via the configured LLM,
+/// emitting `sync-progress` `(done, total)` events as batches complete.
+#[tauri::command]
+async fn run_vocabulary_sync(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<SyncResultDto, String> {
+    let settings = {
+        state
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    };
+
+    let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+
+    let mut engine = state.engine.lock().await;
+    let result = engine
+        .run_vocabulary_sync(
+            paths,
+            &settings.provider,
+            model_opt(&settings),
+            |done, total| {
+                emit_event(&app, "sync-progress", (done, total));
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(SyncResultDto {
+        conversations: result.conversations,
+        terms_added: result.terms_added,
+    })
+}
+
+/// Read the persisted record of the last vocabulary sync.
+#[tauri::command]
+fn get_sync_state() -> Result<SyncStateDto, String> {
+    let state = pie_engine::corrector::sync::SyncState::load(
+        &pie_engine::corrector::sync::default_sync_state_path(),
+    );
+    Ok(SyncStateDto {
+        last_run_unix: state.last_run_unix,
+        terms_added: state.terms_added,
+    })
+}
+
 /* ─── helpers ─── */
 
 /// Map an empty string to `None` so blank optimizer fields aren't stored.
@@ -1041,6 +1152,10 @@ fn main() {
             recorrect_with_ai,
             get_learned_vocab_count,
             reset_learned_vocab,
+            pick_import_target,
+            discover_sync_sources,
+            run_vocabulary_sync,
+            get_sync_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PIE");

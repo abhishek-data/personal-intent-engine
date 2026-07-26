@@ -315,6 +315,41 @@ impl PieEngine {
         self.corrector.learned_entries_seen(heard).unwrap_or(0)
     }
 
+    /// Import vocabulary from the given paths via the configured LLM, storing
+    /// terms as `Source::Synced`. User-initiated only.
+    ///
+    /// Borrow-safe by construction: `run_sync`'s `add` closure captures only a
+    /// local `Vec` (not `self`), so it can run alongside the immutable borrow
+    /// of `self.llm` for the duration of the `.await`. Once `run_sync`
+    /// returns, that borrow ends and the collected pairs are applied via
+    /// `self.corrector.add_synced_correction`, which needs `&mut self`.
+    pub async fn run_vocabulary_sync(
+        &mut self,
+        paths: Vec<PathBuf>,
+        provider: &str,
+        model: Option<&str>,
+        on_progress: impl Fn(usize, usize),
+    ) -> anyhow::Result<crate::corrector::sync::SyncResult> {
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        let result = crate::corrector::sync::run_sync(
+            &paths,
+            &self.llm,
+            provider,
+            model,
+            |variant, canonical| {
+                pairs.push((variant.to_string(), canonical.to_string()));
+                Ok(())
+            },
+            on_progress,
+        )
+        .await?;
+        for (variant, canonical) in &pairs {
+            let _ = self.corrector.add_synced_correction(variant, canonical);
+        }
+        let _ = crate::corrector::sync::record_sync_state(result.terms_added);
+        Ok(result)
+    }
+
     /// Opt-in deep correction via the configured LLM. NOT on the always-on
     /// path — called only from the settings toggle or the on-demand command.
     /// Returns `Err` on any LLM failure; callers decide whether to fall back to
@@ -390,6 +425,26 @@ mod tests {
             after > before,
             "a firing learned correction must be reinforced"
         );
+        let _ = std::fs::remove_file(cpath);
+        let _ = std::fs::remove_file(lpath);
+    }
+
+    #[tokio::test]
+    async fn run_vocabulary_sync_counts_conversations_echo() {
+        let dir = std::env::temp_dir();
+        let uid = format!("{}-{}", std::process::id(), line!());
+        let src = dir.join(format!("pie-syncsrc-{uid}"));
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.md"), "deploy nextjs on vercel").unwrap();
+        let cpath = dir.join(format!("pie-eng-user-{uid}.json"));
+        let lpath = dir.join(format!("pie-eng-learned-{uid}.json"));
+        let mut engine = PieEngine::new_ephemeral_with_learned(cpath.clone(), lpath.clone());
+        let res = engine
+            .run_vocabulary_sync(vec![src.clone()], "echo", None, |_d, _t| {})
+            .await
+            .unwrap();
+        assert_eq!(res.conversations, 1);
+        let _ = std::fs::remove_dir_all(src);
         let _ = std::fs::remove_file(cpath);
         let _ = std::fs::remove_file(lpath);
     }
