@@ -328,7 +328,10 @@ mod tests {
     }
 
     fn temp_learned_path() -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("pie-learned-{}.json", unique_id()))
+        // Distinct prefix from learned.rs's own `pie-learned-*` test files:
+        // both modules build `{pid}-{counter}` from independent counters, so a
+        // shared prefix collides across modules under parallel `cargo test`.
+        std::env::temp_dir().join(format!("pie-mod-learned-{}.json", unique_id()))
     }
 
     #[test]
