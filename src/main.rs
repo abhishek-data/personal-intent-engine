@@ -82,7 +82,7 @@ fn main() -> anyhow::Result<()> {
             println!("[PIE] Provider: {}", args.provider);
         }
 
-        let result = match &input {
+        let mut result = match &input {
             Input::Text(text) => {
                 if args.verbose {
                     println!("[PIE] Input: {text}\n");
@@ -97,6 +97,21 @@ fn main() -> anyhow::Result<()> {
                 result
             }
         };
+
+        // Long-conversation refine (Phase 5): compress the optimized prompt via
+        // an LLM pass when process() flagged the input as needing it. Falls
+        // back to the original prompt on any LLM failure/empty reply.
+        if let Some(req) = result.refine_request.take() {
+            let refined = engine
+                .apply_refine(
+                    &req,
+                    &result.optimized_prompt,
+                    &args.provider,
+                    args.model.as_deref(),
+                )
+                .await;
+            result.optimized_prompt = refined;
+        }
 
         if args.verbose {
             println!("[PIE] Detected intent:");
