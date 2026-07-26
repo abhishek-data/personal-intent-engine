@@ -6,6 +6,18 @@ use crate::memory::store::MemoryStore;
 use crate::optimizer::OptimizationMode;
 use crate::optimizer::{adaptive, balanced, compact, enhanced};
 use crate::stt::SttEngine;
+use std::path::PathBuf;
+use tokio::sync::mpsc;
+
+/// Fire-and-forget signal from the pipeline to the background learner.
+pub struct LearnTask {
+    /// The raw (pre-correction) transcript, for the learner to mine.
+    pub raw_transcript: String,
+    /// The user's configured role, if any, for context-aware learning.
+    pub role: Option<String>,
+    /// The user's known technologies, for context-aware learning.
+    pub technologies: Vec<String>,
+}
 
 /// Result of processing input through the PIE pipeline
 #[derive(Debug)]
@@ -38,6 +50,19 @@ pub struct PieEngine {
     llm: LlmRouter,
     stt: Option<Box<dyn SttEngine>>,
     corrector: PronunciationCorrector,
+    learner_tx: Option<mpsc::Sender<LearnTask>>,
+    learned_vocab_path: Option<PathBuf>,
+    learned_mtime: Option<std::time::SystemTime>,
+}
+
+/// Default on-disk location for the learned/synced vocabulary store. Mirrors
+/// `corrector::default_learned_path` (kept private there) so the engine can
+/// stat the file for reload-on-change without exposing the path externally.
+fn default_learned_vocab_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("pie")
+        .join("learned_vocab.json")
 }
 
 impl PieEngine {
@@ -54,6 +79,9 @@ impl PieEngine {
             llm,
             stt: None,
             corrector,
+            learner_tx: None,
+            learned_vocab_path: Some(default_learned_vocab_path()),
+            learned_mtime: None,
         })
     }
 
@@ -83,6 +111,9 @@ impl PieEngine {
             llm: LlmRouter::new(),
             stt: None,
             corrector: PronunciationCorrector::with_user_path(user_dict_path),
+            learner_tx: None,
+            learned_vocab_path: None,
+            learned_mtime: None,
         }
     }
 
@@ -114,9 +145,33 @@ impl PieEngine {
         self.process(text, mode).await
     }
 
+    /// Reload learned vocab if the file changed since we last looked. Cheap
+    /// stat; only rebuilds when mtime advanced.
+    fn maybe_reload_learned(&mut self) {
+        let Some(path) = &self.learned_vocab_path else {
+            return;
+        };
+        let Ok(meta) = std::fs::metadata(path) else {
+            return;
+        };
+        let Ok(mtime) = meta.modified() else {
+            return;
+        };
+        if self.learned_mtime != Some(mtime) {
+            self.learned_mtime = Some(mtime);
+            let _ = self.corrector.reload_learned();
+        }
+    }
+
     /// Process text input through the full PIE pipeline.
     /// Returns the extracted intent and optimized prompt.
     pub async fn process(&mut self, input: &str, mode: &str) -> anyhow::Result<PieResult> {
+        let raw = input.to_string();
+
+        // Reload learned vocab if the background learner appended since we
+        // last looked, so this turn benefits from it.
+        self.maybe_reload_learned();
+
         // Step 0: Correct speech-to-text jargon errors before anything else.
         // Allow-set: terms the user is known to use, so static phonetic entries
         // only fire for relevant terms. Derived from the profile's tech stack.
@@ -128,6 +183,10 @@ impl PieEngine {
             .map(|t| t.to_lowercase())
             .collect();
         let correction = self.corrector.correct(input, &allowed);
+        for fix in &correction.applied {
+            // `from` is the lowercased heard phrase; reinforce if it's learned.
+            let _ = self.corrector.reinforce_learned(&fix.from);
+        }
         let input = correction.text.as_str();
 
         // Step 1: Extract intent
@@ -154,6 +213,16 @@ impl PieEngine {
 
         // Step 4: Save memory
         let _ = self.memory.save();
+
+        // Fire-and-forget: hand the raw transcript to the background learner,
+        // if one is attached. Never blocks the pipeline.
+        if let Some(tx) = &self.learner_tx {
+            let _ = tx.try_send(LearnTask {
+                raw_transcript: raw,
+                role: self.memory.profile.role.clone(),
+                technologies: self.memory.profile.technologies.clone(),
+            });
+        }
 
         Ok(PieResult {
             intent,
@@ -198,6 +267,45 @@ impl PieEngine {
     /// Remove a user correction.
     pub fn corrector_remove(&mut self, heard: &str) -> anyhow::Result<()> {
         self.corrector.remove_user_correction(heard)
+    }
+
+    /// Attach a background learner: `process` will forward a `LearnTask` for
+    /// every turn (non-blocking; dropped if the channel is full or closed).
+    pub fn set_learner_tx(&mut self, tx: mpsc::Sender<LearnTask>) {
+        self.learner_tx = Some(tx);
+    }
+
+    /// Number of learned (auto + synced) corrections, for UI display.
+    pub fn corrector_learned_count(&self) -> usize {
+        self.corrector.learned_count()
+    }
+
+    /// Clear all learned/synced corrections (never touches the user dict).
+    pub fn corrector_reset_learned(&mut self) -> anyhow::Result<()> {
+        self.corrector.reset_learned()
+    }
+
+    /// Test-only ephemeral engine with an isolated learned-vocab path in
+    /// addition to the isolated user dict, so tests can exercise learned
+    /// corrections/reload without touching real app data.
+    #[doc(hidden)]
+    pub fn new_ephemeral_with_learned(user: PathBuf, learned: PathBuf) -> Self {
+        let mut e = Self::new_ephemeral(user.clone());
+        e.corrector = crate::corrector::PronunciationCorrector::with_paths(user, learned.clone());
+        e.learned_vocab_path = Some(learned);
+        e
+    }
+
+    /// Test-only: add an auto-learned correction directly to the corrector.
+    #[doc(hidden)]
+    pub fn corrector_add_auto(&mut self, heard: &str, canonical: &str) -> anyhow::Result<()> {
+        self.corrector.add_auto_correction(heard, canonical)
+    }
+
+    /// Test-only: the `seen_count` of a learned entry, or 0 when absent.
+    #[doc(hidden)]
+    pub fn corrector_learned_seen(&self, heard: &str) -> u32 {
+        self.corrector.learned_entries_seen(heard).unwrap_or(0)
     }
 
     /// Opt-in deep correction via the configured LLM. NOT on the always-on
@@ -252,5 +360,30 @@ mod tests {
             model: String::new(),
         });
         assert!(engine.llm.is_available("openai"));
+    }
+
+    #[tokio::test]
+    async fn process_reinforces_a_firing_learned_correction() {
+        // Ephemeral engine with injected corrector paths.
+        let dir = std::env::temp_dir();
+        let uid = format!("{}-{}", std::process::id(), line!());
+        let cpath = dir.join(format!("pie-eng-user-{uid}.json"));
+        let lpath = dir.join(format!("pie-eng-learned-{uid}.json"));
+        let mut engine = PieEngine::new_ephemeral_with_learned(cpath.clone(), lpath.clone());
+        engine
+            .corrector_add_auto("terra form", "Terraform")
+            .unwrap();
+        let before = engine.corrector_learned_seen("terra form");
+        let _ = engine
+            .process("deploy with terra form now", "balanced")
+            .await
+            .unwrap();
+        let after = engine.corrector_learned_seen("terra form");
+        assert!(
+            after > before,
+            "a firing learned correction must be reinforced"
+        );
+        let _ = std::fs::remove_file(cpath);
+        let _ = std::fs::remove_file(lpath);
     }
 }
