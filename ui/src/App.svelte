@@ -11,6 +11,7 @@
   import HotkeyRecorder from "./lib/HotkeyRecorder.svelte";
   import HistorySettings from "./lib/HistorySettings.svelte";
   import VocabularySettings from "./lib/VocabularySettings.svelte";
+  import VocabularySync from "./lib/VocabularySync.svelte";
   import HistoryView from "./lib/HistoryView.svelte";
 
   let view = $state("record");
@@ -237,6 +238,7 @@
     <OutputSettings {settings} onSave={save} />
     <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }} />
     <VocabularySettings {settings} onSave={save} onError={(e) => { error = e; }} />
+    <VocabularySync {settings} onSave={save} onError={(e) => { error = e; }} />
     <HistorySettings {settings} onSave={save} />
   {/if}
 </div>
