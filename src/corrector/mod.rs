@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 pub mod dictionary;
 pub mod learned;
+pub mod learner;
 pub mod llm_correct;
 pub mod phonetic;
 pub mod static_seed;
