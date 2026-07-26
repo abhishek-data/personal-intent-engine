@@ -3,6 +3,7 @@ use crate::corrector::{AppliedFix, CorrectionOutcome, PronunciationCorrector};
 use crate::intent::{Intent, IntentExtractor};
 use crate::llm::LlmRouter;
 use crate::memory::store::MemoryStore;
+use crate::optimizer::refine::{self, RefineResult};
 use crate::optimizer::OptimizationMode;
 use crate::optimizer::{adaptive, balanced, compact, enhanced};
 use crate::stt::SttEngine;
@@ -39,6 +40,12 @@ pub struct PieResult {
 
     /// Corrections applied to the transcript, for UI transparency.
     pub applied: Vec<AppliedFix>,
+
+    /// Present only in `refine` mode on long input: the LLM instruction to
+    /// compress `optimized_prompt` (the deterministic fallback) further, via
+    /// `apply_refine`. `None` for every other mode, and for short input in
+    /// `refine` mode (which needs no LLM pass).
+    pub refine_request: Option<crate::optimizer::refine::RefineRequest>,
 }
 
 /// The main PIE engine that orchestrates the full pipeline.
@@ -213,14 +220,23 @@ impl PieEngine {
             "compact" => OptimizationMode::Compact,
             "balanced" => OptimizationMode::Balanced,
             "enhanced" => OptimizationMode::Enhanced,
+            "refine" => OptimizationMode::Refine,
             _ => OptimizationMode::Adaptive,
         };
 
+        let mut refine_request = None;
         let optimized = match optimization_mode {
             OptimizationMode::Compact => compact::optimize(&intent, &self.memory),
             OptimizationMode::Balanced => balanced::optimize(&intent, &self.memory),
             OptimizationMode::Enhanced => enhanced::optimize(&intent, &self.memory),
             OptimizationMode::Adaptive => adaptive::optimize(&intent, &self.memory),
+            OptimizationMode::Refine => match refine::optimize(&intent, &self.memory) {
+                RefineResult::Balanced(p) => p,
+                RefineResult::Refine { base, request } => {
+                    refine_request = Some(request);
+                    base
+                }
+            },
         };
 
         // Step 4: Save memory
@@ -243,6 +259,7 @@ impl PieEngine {
             estimated_tokens: optimized.estimated_tokens,
             corrected_transcript: correction.text.clone(),
             applied: correction.applied,
+            refine_request,
         })
     }
 
@@ -254,6 +271,27 @@ impl PieEngine {
         model: Option<&str>,
     ) -> anyhow::Result<String> {
         self.llm.send(prompt, provider, model).await
+    }
+
+    /// Run the refine LLM pass. Returns the compressed prompt on success, or
+    /// `original` on any LLM failure, empty reply, or the `echo` debug
+    /// provider (never drops input).
+    pub async fn apply_refine(
+        &self,
+        request: &crate::optimizer::refine::RefineRequest,
+        original: &str,
+        provider: &str,
+        model: Option<&str>,
+    ) -> String {
+        // The echo debug provider would just return our instruction template;
+        // there's no real refinement to do, so preserve the original input.
+        if provider == "echo" {
+            return original.to_string();
+        }
+        match self.llm.send(&request.prompt, provider, model).await {
+            Ok(s) if !s.trim().is_empty() => s.trim().to_string(),
+            _ => original.to_string(),
+        }
     }
 
     /// Get the current memory store (for inspection)
@@ -430,6 +468,71 @@ mod tests {
             after > before,
             "a firing learned correction must be reinforced"
         );
+        let _ = std::fs::remove_file(cpath);
+        let _ = std::fs::remove_file(lpath);
+    }
+
+    #[tokio::test]
+    async fn refine_mode_attaches_request_for_long_input_and_falls_back() {
+        let dir = std::env::temp_dir();
+        let uid = format!("{}-{}", std::process::id(), line!());
+        let cpath = dir.join(format!("pie-rf-user-{uid}.json"));
+        let lpath = dir.join(format!("pie-rf-learned-{uid}.json"));
+        let mut engine = PieEngine::new_ephemeral_with_learned(cpath.clone(), lpath.clone());
+        let long = "so ".to_string() + &"refactor the widget ".repeat(30); // > 80 words
+        let res = engine.process(&long, "refine").await.unwrap();
+        assert!(
+            res.refine_request.is_some(),
+            "long input attaches a refine request"
+        );
+        // echo provider is short-circuited to the original (deterministic
+        // fallback) prompt, which is itself non-empty.
+        let req = res.refine_request.as_ref().unwrap();
+        let refined = engine
+            .apply_refine(req, &res.optimized_prompt, "echo", None)
+            .await;
+        assert!(!refined.is_empty());
+        let _ = std::fs::remove_file(cpath);
+        let _ = std::fs::remove_file(lpath);
+    }
+
+    #[tokio::test]
+    async fn refine_mode_short_input_no_request() {
+        let dir = std::env::temp_dir();
+        let uid = format!("{}-{}", std::process::id(), line!());
+        let cpath = dir.join(format!("pie-rf2-user-{uid}.json"));
+        let lpath = dir.join(format!("pie-rf2-learned-{uid}.json"));
+        let mut engine = PieEngine::new_ephemeral_with_learned(cpath.clone(), lpath.clone());
+        let res = engine.process("build a rust cli", "refine").await.unwrap();
+        assert!(res.refine_request.is_none(), "short input needs no refine");
+        let _ = std::fs::remove_file(cpath);
+        let _ = std::fs::remove_file(lpath);
+    }
+
+    #[tokio::test]
+    async fn apply_refine_echo_returns_original() {
+        let dir = std::env::temp_dir();
+        let uid = format!("{}-{}", std::process::id(), line!());
+        let cpath = dir.join(format!("pie-rf3-user-{uid}.json"));
+        let lpath = dir.join(format!("pie-rf3-learned-{uid}.json"));
+        let engine = PieEngine::new_ephemeral_with_learned(cpath.clone(), lpath.clone());
+
+        // > 80 words, so refine::optimize yields a real RefineRequest.
+        let long = "so ".to_string() + &"refactor the widget ".repeat(30);
+        let intent = IntentExtractor::new().extract(&long);
+        let mem = MemoryStore::default();
+        let request = match refine::optimize(&intent, &mem) {
+            RefineResult::Refine { request, .. } => request,
+            RefineResult::Balanced(_) => panic!("long input must yield a refine request"),
+        };
+
+        // The echo provider would otherwise return the instruction template
+        // itself; apply_refine must short-circuit to the original text.
+        let refined = engine
+            .apply_refine(&request, "ORIGINAL TEXT", "echo", None)
+            .await;
+        assert_eq!(refined, "ORIGINAL TEXT");
+
         let _ = std::fs::remove_file(cpath);
         let _ = std::fs::remove_file(lpath);
     }

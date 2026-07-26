@@ -2,6 +2,7 @@ pub mod adaptive;
 pub mod balanced;
 pub mod compact;
 pub mod enhanced;
+pub mod refine;
 
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +17,8 @@ pub enum OptimizationMode {
     Enhanced,
     /// Auto-select based on context
     Adaptive,
+    /// Compress long rambling input into a sharp prompt via the LLM.
+    Refine,
 }
 
 /// Result of prompt optimization

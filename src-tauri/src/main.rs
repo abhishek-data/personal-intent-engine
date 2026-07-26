@@ -197,10 +197,31 @@ async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Ou
 
     // 3. Intent + optimization through the shared pipeline.
     let mut engine = state.engine.lock().await;
-    let result = engine
+    let mut result = engine
         .process(&transcript, &settings.mode)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Long-conversation refine (Phase 5): compress the optimized prompt via an
+    // LLM pass when process() flagged the input as needing it. Falls back to
+    // the original prompt on any LLM failure/empty reply. Only worth the LLM
+    // round-trip when the optimized prompt is actually what gets pasted
+    // (paste_output == "prompt"); otherwise the transcript is pasted and the
+    // refined prompt would never be surfaced, so skip it to save latency on
+    // the hotkey path.
+    if settings.paste_output == "prompt" {
+        if let Some(req) = result.refine_request.take() {
+            let refined = engine
+                .apply_refine(
+                    &req,
+                    &result.optimized_prompt,
+                    &settings.provider,
+                    model_opt(&settings),
+                )
+                .await;
+            result.optimized_prompt = refined;
+        }
+    }
 
     // Opt-in deep correction (off the always-on path): re-run the LLM pass over
     // the deterministic result and fold in any extra fixes it finds. Never
