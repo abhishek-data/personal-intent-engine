@@ -10,6 +10,7 @@ use crate::memory::store::MemoryStore;
 pub const REFINE_WORD_THRESHOLD: usize = 80;
 
 /// The LLM instruction to compress a long input.
+#[derive(Debug)]
 pub struct RefineRequest {
     pub prompt: String,
 }
