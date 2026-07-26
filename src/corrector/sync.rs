@@ -199,6 +199,10 @@ pub const MAX_BATCH_CHARS: usize = 12000;
 /// under `max_block` pass through unchanged. Empty or whitespace-only
 /// pieces (input or resulting) are dropped.
 pub fn split_oversized(texts: Vec<String>, max_block: usize) -> Vec<String> {
+    // Floor the budget at 4 (max UTF-8 char width) so the char-boundary
+    // hard-split below always advances by at least one char — otherwise a
+    // tiny `max_block` could stall on a multi-byte leading character.
+    let max_block = max_block.max(4);
     let mut out = Vec::new();
     for text in texts {
         if text.trim().is_empty() {
