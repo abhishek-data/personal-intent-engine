@@ -800,6 +800,11 @@ struct SyncSourceDto {
 struct SyncResultDto {
     conversations: usize,
     terms_added: usize,
+    /// Number of LLM batches sent this run.
+    batches_total: usize,
+    /// Number of those batches that failed (LLM error or unparseable
+    /// reply) — counts only, never error content.
+    batches_failed: usize,
 }
 
 /// Persisted record of the last vocabulary sync, for the settings UI.
@@ -883,6 +888,8 @@ async fn run_vocabulary_sync(
     Ok(SyncResultDto {
         conversations: result.conversations,
         terms_added: result.terms_added,
+        batches_total: result.batches_total,
+        batches_failed: result.batches_failed,
     })
 }
 

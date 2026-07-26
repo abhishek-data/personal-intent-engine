@@ -93,6 +93,12 @@ pub struct SyncedTerm {
 pub struct SyncResult {
     pub conversations: usize,
     pub terms_added: usize,
+    /// Number of LLM batches sent this run.
+    pub batches_total: usize,
+    /// Number of those batches that failed (LLM error, or unparseable
+    /// reply). Never reflects *why* a batch failed — no error content or
+    /// API key is ever captured here, counts only.
+    pub batches_failed: usize,
 }
 
 /// Persistent record of the last sync.
@@ -175,6 +181,73 @@ pub fn extract_cursor_texts(vscdb: &Path) -> Vec<String> {
     out
 }
 
+/// Character ceiling for a single text block sent to the LLM. Blocks over
+/// this are split by [`split_oversized`] before batching, so a single huge
+/// export (e.g. an entire ChatGPT `conversations.json` harvested as one
+/// string) can't become one prompt that overflows the model's context.
+pub const MAX_BLOCK_CHARS: usize = 4000;
+
+/// Character budget for one LLM batch (sum of the block lengths it
+/// contains). `run_sync` accumulates blocks into a batch up to this budget
+/// rather than a fixed block count, so batch size scales with content size.
+pub const MAX_BATCH_CHARS: usize = 12000;
+
+/// Split any text block longer than `max_block` into pieces no longer than
+/// `max_block` characters, breaking on line boundaries wherever possible. A
+/// single line longer than `max_block` is hard-split by character (on a
+/// UTF-8 boundary) since there's no line boundary to prefer. Blocks at or
+/// under `max_block` pass through unchanged. Empty or whitespace-only
+/// pieces (input or resulting) are dropped.
+pub fn split_oversized(texts: Vec<String>, max_block: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    for text in texts {
+        if text.trim().is_empty() {
+            continue;
+        }
+        if text.len() <= max_block {
+            out.push(text);
+            continue;
+        }
+        let mut current = String::new();
+        for line in text.split_inclusive('\n') {
+            if line.len() > max_block {
+                if !current.trim().is_empty() {
+                    out.push(std::mem::take(&mut current));
+                }
+                current.clear();
+                // No line boundary to use for this one line: hard-split by
+                // character, on a UTF-8 boundary.
+                let mut rest = line;
+                while rest.len() > max_block {
+                    let mut split_at = max_block;
+                    while split_at > 0 && !rest.is_char_boundary(split_at) {
+                        split_at -= 1;
+                    }
+                    let (chunk, remainder) = rest.split_at(split_at);
+                    if !chunk.trim().is_empty() {
+                        out.push(chunk.to_string());
+                    }
+                    rest = remainder;
+                }
+                if !rest.is_empty() {
+                    current.push_str(rest);
+                }
+            } else if current.len() + line.len() > max_block {
+                if !current.trim().is_empty() {
+                    out.push(std::mem::take(&mut current));
+                }
+                current = line.to_string();
+            } else {
+                current.push_str(line);
+            }
+        }
+        if !current.trim().is_empty() {
+            out.push(current);
+        }
+    }
+    out
+}
+
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -207,30 +280,63 @@ where
             texts.extend(extract_texts(p));
         }
     }
+    let texts = split_oversized(texts, MAX_BLOCK_CHARS);
     let total = texts.len();
     let mut done = 0usize;
     let mut terms_added = 0usize;
+    let mut batches_total = 0usize;
+    let mut batches_failed = 0usize;
 
-    for batch in texts.chunks(10) {
+    let mut idx = 0usize;
+    while idx < texts.len() {
+        // Accumulate blocks into a batch until the next one would exceed
+        // the character budget, always including at least one block.
+        let mut end = idx + 1;
+        let mut batch_chars = texts[idx].len();
+        while end < texts.len() {
+            let next_len = texts[end].len();
+            if batch_chars + next_len > MAX_BATCH_CHARS {
+                break;
+            }
+            batch_chars += next_len;
+            end += 1;
+        }
+        let batch = &texts[idx..end];
+
         let prompt = build_sync_prompt(batch);
-        if let Ok(reply) = llm.send(&prompt, provider, model).await {
-            if let Ok(terms) = parse_synced_terms(&reply) {
-                for t in terms {
-                    for variant in &t.variants {
-                        if add(variant, &t.term).is_ok() {
-                            terms_added += 1;
+        batches_total += 1;
+        let mut failed = false;
+        match llm.send(&prompt, provider, model).await {
+            Ok(reply) => match parse_synced_terms(&reply) {
+                Ok(terms) => {
+                    for t in terms {
+                        for variant in &t.variants {
+                            if add(variant, &t.term).is_ok() {
+                                terms_added += 1;
+                            }
                         }
                     }
                 }
-            }
+                Err(_) => failed = true,
+            },
+            Err(_) => failed = true,
         }
+        if failed {
+            batches_failed += 1;
+            // Counts only: never log the reply/error content or API key.
+            log::warn!("sync batch failed");
+        }
+
         done += batch.len();
         on_progress(done, total);
+        idx = end;
     }
 
     Ok(SyncResult {
         conversations: total,
         terms_added,
+        batches_total,
+        batches_failed,
     })
 }
 
@@ -384,6 +490,102 @@ mod tests {
         .unwrap();
         // echo returns non-JSON, so parse yields nothing; conversations counted.
         assert_eq!(res.conversations, 1);
+        // echo's reply is never valid JSON, so this one batch fails to parse
+        // -> batches_failed should equal batches_total (all failed).
+        assert_eq!(res.batches_total, 1);
+        assert_eq!(res.batches_failed, res.batches_total);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn split_oversized_passes_small_blocks_through() {
+        let texts = vec!["short block".to_string(), "another short one".to_string()];
+        let out = split_oversized(texts.clone(), MAX_BLOCK_CHARS);
+        assert_eq!(out, texts);
+    }
+
+    #[test]
+    fn split_oversized_splits_large_block_on_line_boundaries() {
+        // 500 lines of ~20 chars each = well over a max_block of 100.
+        let big: String = (0..500).map(|i| format!("line number {i:04}\n")).collect();
+        assert!(big.len() > 100);
+        let out = split_oversized(vec![big.clone()], 100);
+        assert!(out.len() > 1, "expected multiple pieces, got {}", out.len());
+        for piece in &out {
+            assert!(
+                piece.len() <= 100,
+                "piece exceeds max_block: {}",
+                piece.len()
+            );
+            assert!(!piece.trim().is_empty());
+        }
+        // No content lost: every line reappears somewhere in the output.
+        let joined = out.concat();
+        for i in 0..500 {
+            let line = format!("line number {i:04}");
+            assert!(joined.contains(&line), "missing {line}");
+        }
+    }
+
+    #[test]
+    fn split_oversized_hard_splits_a_single_overlong_line() {
+        // One line with no newlines at all, far longer than max_block.
+        let long_line = "x".repeat(350);
+        let out = split_oversized(vec![long_line.clone()], 100);
+        assert!(out.len() > 1);
+        for piece in &out {
+            assert!(piece.len() <= 100);
+        }
+        assert_eq!(out.concat(), long_line, "hard split must not lose chars");
+    }
+
+    #[test]
+    fn split_oversized_drops_empty_and_whitespace_only_pieces() {
+        let texts = vec!["".to_string(), "   \n  \n".to_string(), "kept".to_string()];
+        let out = split_oversized(texts, MAX_BLOCK_CHARS);
+        assert_eq!(out, vec!["kept".to_string()]);
+    }
+
+    #[test]
+    fn split_oversized_on_synthetic_large_chatgpt_style_export() {
+        // Build a JSON array of many message strings, simulating a large
+        // single-file ChatGPT `conversations.json` export, serialize it to
+        // a temp file, run it through extract_texts (which harvests it as
+        // ONE big joined string), then split_oversized -- this must yield
+        // more than one block so a megabyte export doesn't become a single
+        // giant prompt.
+        let d = temp_dir();
+        let f = d.join("conversations.json");
+        let messages: Vec<serde_json::Value> = (0..2000)
+            .map(|i| {
+                serde_json::json!({
+                    "role": "user",
+                    "content": format!(
+                        "message {i}: deploying with kubernetes and terraform on aws, \
+                         talking about nextjs and vercel and postgres"
+                    )
+                })
+            })
+            .collect();
+        let doc = serde_json::Value::Array(messages);
+        std::fs::write(&f, serde_json::to_string(&doc).unwrap()).unwrap();
+
+        let texts = extract_texts(&f);
+        assert_eq!(texts.len(), 1, "a single json file yields one big block");
+        assert!(
+            texts[0].len() > MAX_BLOCK_CHARS,
+            "synthetic export should be larger than the block budget"
+        );
+
+        let split = split_oversized(texts, MAX_BLOCK_CHARS);
+        assert!(
+            split.len() > 1,
+            "a large single-file export must be split into multiple blocks"
+        );
+        for block in &split {
+            assert!(block.len() <= MAX_BLOCK_CHARS);
+        }
+
         let _ = std::fs::remove_dir_all(d);
     }
 }

@@ -192,6 +192,11 @@ impl PieEngine {
             // opt-in auto-learned vocab (never user/static data); it self-heals
             // on the next mtime reload. Planned fix: funnel writes through a
             // single owner (tracked follow-up).
+            // Synced (user-imported) entries from `corrector::sync` also live in
+            // this same file, sharing this race, but they do NOT self-heal: an
+            // import is one-shot, so a lost update from a concurrent write is
+            // permanent until the user re-imports. The tracked single-writer
+            // follow-up must cover synced data too, not just auto-learned vocab.
             let _ = self.corrector.reinforce_learned(&fix.from);
         }
         let input = correction.text.as_str();

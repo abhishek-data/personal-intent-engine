@@ -52,7 +52,15 @@
     result = null;
     progress = { done: 0, total: 0 };
     try {
-      result = await invoke("run_vocabulary_sync", { paths });
+      const res = await invoke("run_vocabulary_sync", { paths });
+      if (res.batches_total > 0 && res.batches_failed === res.batches_total) {
+        // Every batch failed: this is a failure, not "0 terms found".
+        onError(
+          "Vocabulary sync failed — the LLM returned an error for every batch. Check your LLM provider settings."
+        );
+      } else {
+        result = res;
+      }
       await refreshState();
     } catch (e) {
       onError(String(e));
@@ -167,6 +175,11 @@
       <p class="caption">
         Imported {result.terms_added} terms from {result.conversations} conversations.
       </p>
+      {#if result.batches_failed > 0}
+        <p class="caption">
+          ⚠ {result.batches_failed} of {result.batches_total} batches failed (check your LLM settings)
+        </p>
+      {/if}
     {/if}
 
     <p class="caption">Last synced: {lastSyncedLabel}</p>
