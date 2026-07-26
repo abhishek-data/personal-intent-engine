@@ -1,5 +1,5 @@
 <script>
-  // Output pane: what the hotkey pastes, and which LLM "Send to LLM" targets.
+  // Output pane: what the hotkey pastes after transcription.
   let { settings, onSave } = $props();
 </script>
 
@@ -29,16 +29,4 @@
       PIE-structured prompt.
     </p>
   </div>
-  <div class="field">
-    <label for="provider">LLM provider</label>
-    <select id="provider" bind:value={settings.provider} onchange={onSave}>
-      <option value="echo">Echo (debug)</option>
-      <option value="openai">OpenAI</option>
-      <option value="openrouter">OpenRouter</option>
-    </select>
-  </div>
-  <p class="caption">
-    Used by “Send to LLM”. Configure the endpoint, API key, and model under
-    LLM Provider above.
-  </p>
 </section>

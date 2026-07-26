@@ -610,7 +610,10 @@ async fn test_llm_connection(url: String, key: String, model: String) -> Result<
     } else {
         model
     };
-    match client.chat("ping", &model).await {
+    match client
+        .chat_with_timeout("ping", &model, std::time::Duration::from_secs(10))
+        .await
+    {
         Ok(_) => Ok("connected".to_string()),
         Err(e) => Err(e.to_string()),
     }

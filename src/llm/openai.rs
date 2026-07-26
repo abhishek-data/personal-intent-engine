@@ -60,6 +60,34 @@ impl OpenAiClient {
 
     /// Send a prompt and get a response
     pub async fn chat(&self, prompt: &str, model: &str) -> anyhow::Result<String> {
+        self.chat_impl(prompt, model, None).await
+    }
+
+    /// Send a prompt and get a response, bounded by `timeout`.
+    ///
+    /// Identical to [`OpenAiClient::chat`] except the request is aborted with
+    /// an error if it takes longer than `timeout`. Intended for interactive
+    /// paths (e.g. a "Test Connection" button) where hanging on an
+    /// unreachable or misconfigured URL would leave the UI stuck.
+    pub async fn chat_with_timeout(
+        &self,
+        prompt: &str,
+        model: &str,
+        timeout: std::time::Duration,
+    ) -> anyhow::Result<String> {
+        self.chat_impl(prompt, model, Some(timeout)).await
+    }
+
+    /// Shared implementation behind [`OpenAiClient::chat`] and
+    /// [`OpenAiClient::chat_with_timeout`]. `timeout`, when set, bounds the
+    /// HTTP request so a hung or unreachable endpoint fails fast instead of
+    /// hanging indefinitely.
+    async fn chat_impl(
+        &self,
+        prompt: &str,
+        model: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> anyhow::Result<String> {
         let request = ChatRequest {
             model: model.to_string(),
             messages: vec![ChatMessage {
@@ -72,14 +100,17 @@ impl OpenAiClient {
 
         let url = format!("{}/chat/completions", self.base_url);
 
-        let response = self
+        let mut request_builder = self
             .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .json(&request)
-            .send()
-            .await?;
+            .json(&request);
+        if let Some(timeout) = timeout {
+            request_builder = request_builder.timeout(timeout);
+        }
+
+        let response = request_builder.send().await?;
 
         if !response.status().is_success() {
             let status = response.status();

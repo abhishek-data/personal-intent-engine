@@ -8,6 +8,17 @@
   let testResult = $state("");
   let testOk = $state(false);
 
+  // If the user types a real endpoint while still on the "echo" debug
+  // provider, promote them to "openai" so "Send to LLM" actually calls out
+  // instead of silently echoing. Only fires when the URL is non-empty, so
+  // clearing the URL never changes the provider.
+  function onUrlChange() {
+    if (settings.llm_api_url.trim() !== "" && settings.provider === "echo") {
+      settings.provider = "openai";
+    }
+    onSave();
+  }
+
   async function testConnection() {
     testing = true;
     testResult = "";
@@ -30,11 +41,19 @@
 
 <section class="group">
   <div class="field">
+    <label for="provider">LLM provider</label>
+    <select id="provider" bind:value={settings.provider} onchange={onSave}>
+      <option value="echo">Echo (debug)</option>
+      <option value="openai">OpenAI</option>
+      <option value="openrouter">OpenRouter</option>
+    </select>
+  </div>
+  <div class="field">
     <label for="llm-url">API URL</label>
     <input
       id="llm-url"
       bind:value={settings.llm_api_url}
-      onblur={onSave}
+      onblur={onUrlChange}
       placeholder="https://api.openai.com/v1"
     />
   </div>
