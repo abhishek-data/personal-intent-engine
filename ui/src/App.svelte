@@ -6,6 +6,7 @@
   import RecordingView from "./lib/RecordingView.svelte";
   import ModelManager from "./lib/ModelManager.svelte";
   import TranscriptionSettings from "./lib/TranscriptionSettings.svelte";
+  import LLMSettings from "./lib/LLMSettings.svelte";
   import OutputSettings from "./lib/OutputSettings.svelte";
   import HotkeyRecorder from "./lib/HotkeyRecorder.svelte";
   import HistorySettings from "./lib/HistorySettings.svelte";
@@ -26,6 +27,8 @@
     language: "auto",
     mode: "balanced",
     provider: "echo",
+    llm_api_url: "",
+    llm_api_key: "",
     llm_model: "",
     hotkey: "CmdOrCtrl+Shift+Space",
     paste_output: "transcript",
@@ -230,6 +233,7 @@
     <HistoryView />
   {:else if view === "settings"}
     <TranscriptionSettings {settings} onSave={save} />
+    <LLMSettings {settings} onSave={save} />
     <OutputSettings {settings} onSave={save} />
     <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }} />
     <VocabularySettings {settings} onSave={save} onError={(e) => { error = e; }} />
