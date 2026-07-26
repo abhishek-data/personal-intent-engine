@@ -14,6 +14,7 @@ pub mod learner;
 pub mod llm_correct;
 pub mod phonetic;
 pub mod static_seed;
+pub mod sync;
 
 pub use dictionary::{Correction, CorrectionDict, Source};
 use learned::{LearnedSource, LearnedStore};
