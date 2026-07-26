@@ -2,7 +2,7 @@
   // Transcription pane: spoken language + prompt optimization mode.
   let { settings, onSave } = $props();
 
-  const MODES = ["compact", "balanced", "enhanced", "adaptive"];
+  const MODES = ["compact", "balanced", "enhanced", "adaptive", "refine"];
 </script>
 
 <section class="group">
@@ -35,7 +35,8 @@
     </div>
     <p class="caption">
       How speech becomes a prompt: compact strips filler, enhanced enriches
-      context, adaptive picks per input.
+      context, adaptive picks per input, refine compresses long dictation using
+      your LLM (long inputs only).
     </p>
   </div>
 </section>
