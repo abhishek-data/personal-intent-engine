@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use pie_engine::audio::{
-    SileroVad, VadPipeline, VadFrame, VoiceActivityDetector, FRAME_SAMPLES,
-    PIE_VAD_THRESHOLD, VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES, VAD_CONTEXT_FRAMES,
+    SileroVad, VadFrame, VadPipeline, VoiceActivityDetector, FRAME_SAMPLES, PIE_VAD_THRESHOLD,
+    VAD_CONTEXT_FRAMES, VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES,
 };
 
 fn model_path() -> Option<PathBuf> {

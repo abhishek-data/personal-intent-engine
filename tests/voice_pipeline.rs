@@ -101,7 +101,7 @@ fn transcribes_synthesized_speech_through_pipeline() {
 /// ever supplied, the streaming branch assertions run instead.
 #[test]
 fn streaming_session_finalizes_or_falls_back_to_batch() {
-    use pie_engine::stt::{TranscriptRouter, SttEngine};
+    use pie_engine::stt::{SttEngine, TranscriptRouter};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Instant;

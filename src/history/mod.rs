@@ -304,7 +304,10 @@ mod tests {
         assert_eq!(got.objective.as_deref(), Some("objective text"));
         assert_eq!(got.conversation_type.as_deref(), Some("Question"));
         assert_eq!(got.confidence.as_deref(), Some("High"));
-        assert_eq!(got.optimized_prompt.as_deref(), Some("optimized prompt text"));
+        assert_eq!(
+            got.optimized_prompt.as_deref(),
+            Some("optimized prompt text")
+        );
         assert_eq!(got.estimated_tokens, Some(42));
         assert_eq!(got.mode.as_deref(), Some("Fast"));
         assert_eq!(got.language.as_deref(), Some("en"));

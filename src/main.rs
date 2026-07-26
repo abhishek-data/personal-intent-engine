@@ -180,7 +180,7 @@ fn load_audio_file(path: &std::path::Path) -> anyhow::Result<Vec<f32>> {
 #[cfg(feature = "whisper")]
 fn voice_session(args: &Args) -> anyhow::Result<String> {
     use pie_engine::audio::VadPolicy;
-    use pie_engine::stt::{TranscriptRouter, SttEngine};
+    use pie_engine::stt::{SttEngine, TranscriptRouter};
     use std::sync::Arc;
 
     let engine = build_whisper_engine(args)?;
@@ -259,9 +259,8 @@ fn voice_session(args: &Args) -> anyhow::Result<String> {
 #[cfg(all(feature = "whisper", feature = "vad"))]
 fn build_recorder(args: &Args) -> anyhow::Result<(pie_engine::audio::AudioRecorder, bool)> {
     use pie_engine::audio::{
-        AudioRecorder, SileroVad, VadPipeline, PIE_VAD_THRESHOLD,
-        VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES, VAD_CONTEXT_FRAMES,
-        VAD_STREAM_HANGOVER_FRAMES,
+        AudioRecorder, SileroVad, VadPipeline, PIE_VAD_THRESHOLD, VAD_CONTEXT_FRAMES,
+        VAD_HANGOVER_FRAMES, VAD_SPEECH_THRESHOLD_FRAMES, VAD_STREAM_HANGOVER_FRAMES,
     };
 
     let model_path = args
