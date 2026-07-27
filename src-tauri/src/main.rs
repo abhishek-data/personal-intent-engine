@@ -406,14 +406,14 @@ async fn update_settings(
 ) -> Result<(), String> {
     let hotkey_changed = {
         let current = state.settings.lock().unwrap_or_else(|e| e.into_inner());
-        current.hotkey != settings.hotkey
+        current.hotkey_optimized != settings.hotkey_optimized
     };
     // Register the new hotkey BEFORE persisting: if it's invalid, we return the
     // error without saving a broken binding (and the old one stays active).
     // The whisper cache checks (path, language) on next use, so model/language
     // changes reload naturally — only the hotkey needs re-wiring.
     if hotkey_changed {
-        register_hotkey(&app, &settings.hotkey)?;
+        register_hotkey(&app, &settings.hotkey_optimized)?;
     }
     let llm_changed = {
         let current = state.settings.lock().unwrap_or_else(|e| e.into_inner());
@@ -445,7 +445,7 @@ fn set_hotkey_active(
             .settings
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .hotkey
+            .hotkey_optimized
             .clone();
         register_hotkey(&app, &hotkey)
     } else {
@@ -1039,7 +1039,7 @@ fn main() {
             let settings = Settings::load();
             let engine =
                 tauri::async_runtime::block_on(PieEngine::with_config(&llm_config(&settings)))?;
-            let hotkey = settings.hotkey.clone();
+            let hotkey = settings.hotkey_optimized.clone();
             let history_path = dirs::config_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join("pie")
