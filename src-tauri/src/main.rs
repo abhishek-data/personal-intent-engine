@@ -454,17 +454,22 @@ async fn update_settings(
     if hotkeys_changed {
         register_hotkeys(&app, &settings)?;
     }
-    let llm_changed = {
+    let (llm_changed, code_mode_changed) = {
         let current = state.settings.lock().unwrap_or_else(|e| e.into_inner());
-        current.llm_api_url != settings.llm_api_url
+        let llm = current.llm_api_url != settings.llm_api_url
             || current.llm_api_key != settings.llm_api_key
-            || current.llm_model != settings.llm_model
+            || current.llm_model != settings.llm_model;
+        (llm, current.code_mode != settings.code_mode)
     };
     settings.save().map_err(|e| e.to_string())?;
-    if llm_changed {
-        let cfg = llm_config(&settings);
+    if llm_changed || code_mode_changed {
         let mut engine = state.engine.lock().await;
-        engine.set_llm_config(&cfg);
+        if llm_changed {
+            engine.set_llm_config(&llm_config(&settings));
+        }
+        if code_mode_changed {
+            engine.set_code_mode(settings.code_mode);
+        }
     }
     *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
     Ok(())
@@ -1088,8 +1093,9 @@ fn main() {
     builder
         .setup(|app| {
             let settings = Settings::load();
-            let engine =
+            let mut engine =
                 tauri::async_runtime::block_on(PieEngine::with_config(&llm_config(&settings)))?;
+            engine.set_code_mode(settings.code_mode);
             let default_paste_mode = settings.paste_output.clone();
             let settings_for_hotkeys = settings.clone();
             let history_path = dirs::config_dir()

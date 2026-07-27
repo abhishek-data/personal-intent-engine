@@ -80,6 +80,23 @@
   </div>
 
   <div class="field">
+    <label class="toggle-row">
+      <input
+        type="checkbox"
+        bind:checked={settings.code_mode}
+        onchange={onSave}
+      />
+      <span>
+        <span class="field-label toggle-label">Code mode</span>
+        <span class="caption toggle-caption">
+          Translate spoken code (“console dot log” → console.log() ). Only turn
+          on while dictating code.
+        </span>
+      </span>
+    </label>
+  </div>
+
+  <div class="field">
     <span class="field-label">Learned vocabulary</span>
     <p class="caption">{learnedCount} terms learned automatically</p>
     <button class="btn sm" onclick={resetLearned} aria-label="Reset learned vocabulary">

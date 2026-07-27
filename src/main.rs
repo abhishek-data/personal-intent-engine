@@ -14,6 +14,11 @@ struct Args {
     #[arg(short, long, default_value = "balanced")]
     mode: String,
 
+    /// Translate spoken code patterns into syntax ("console dot log" ->
+    /// "console.log(") after pronunciation correction. Off by default.
+    #[arg(long)]
+    code_mode: bool,
+
     /// LLM provider
     #[arg(short, long, default_value = "openai")]
     provider: String,
@@ -72,6 +77,7 @@ fn main() -> anyhow::Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         let mut engine = pie_engine::PieEngine::new().await?;
+        engine.set_code_mode(args.code_mode);
 
         if let Input::Audio(_) = &input {
             engine = engine.with_stt(build_stt_engine(&args)?);
