@@ -8,6 +8,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+pub mod code_phrases;
 pub mod dictionary;
 pub mod learned;
 pub mod learner;
