@@ -94,7 +94,15 @@ fn replace_all_ci(haystack: &str, needle: &str, replacement: &str) -> String {
     let mut i = 0;
     while i < hay_chars.len() {
         let end = i + needle_chars.len();
+        // Anchor on word boundaries so a phrase only matches as whole words:
+        // "not equal" must not fire inside "cannot equalize". A boundary is the
+        // start/end of the text or a non-alphanumeric neighbour.
+        let left_ok = i == 0 || !hay_chars[i - 1].is_alphanumeric();
+        // `end >= len` short-circuits before the index, so this never panics.
+        let right_ok = end >= hay_chars.len() || !hay_chars[end].is_alphanumeric();
         let is_match = end <= hay_chars.len()
+            && left_ok
+            && right_ok
             && hay_chars[i..end]
                 .iter()
                 .zip(needle_chars.iter())
@@ -161,6 +169,26 @@ mod tests {
     fn no_match_returns_input_unchanged() {
         let map = vec![("triple equals".to_string(), "===".to_string())];
         assert_eq!(apply_with_map("hello world", &map), "hello world");
+    }
+
+    #[test]
+    fn word_boundary_prevents_midword_match() {
+        let map = vec![("not equal".to_string(), "!=".to_string())];
+        // "not equal" appears inside "cannot equalize" but must NOT fire.
+        assert_eq!(
+            apply_with_map("cannot equalize this", &map),
+            "cannot equalize this"
+        );
+        // As standalone words it must still fire.
+        assert_eq!(apply_with_map("a not equal b", &map), "a != b");
+        // Bounded by punctuation counts as a boundary.
+        assert_eq!(apply_with_map("(not equal)", &map), "(!=)");
+    }
+
+    #[test]
+    fn phrase_at_start_and_end_still_matches() {
+        let map = vec![("triple equals".to_string(), "===".to_string())];
+        assert_eq!(apply_with_map("triple equals", &map), "===");
     }
 
     #[test]
