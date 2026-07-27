@@ -239,18 +239,12 @@ impl PieEngine {
         };
         for fix in &correction.applied {
             // `from` is the lowercased heard phrase; reinforce if it's learned.
-            // NOTE: when background mining is on, this reinforcement and the
-            // learner's `run()` (learner.rs) are two independent writers of
-            // learned_vocab.json, each doing load-modify-save from its own
-            // snapshot, so a concurrent write can lose an update. Bounded to
-            // opt-in auto-learned vocab (never user/static data); it self-heals
-            // on the next mtime reload. Planned fix: funnel writes through a
-            // single owner (tracked follow-up).
-            // Synced (user-imported) entries from `corrector::sync` also live in
-            // this same file, sharing this race, but they do NOT self-heal: an
-            // import is one-shot, so a lost update from a concurrent write is
-            // permanent until the user re-imports. The tracked single-writer
-            // follow-up must cover synced data too, not just auto-learned vocab.
+            // This write is safe: the engine is the SOLE writer of
+            // learned_vocab.json — reinforcement, sync (add_synced_correction),
+            // and mined terms (drain_mined) all go through this one
+            // engine-owned corrector, serialized behind the app's engine mutex.
+            // The background learner only sends candidates over a channel and
+            // never touches the file, so there is no concurrent-writer race.
             let _ = self.corrector.reinforce_learned(&fix.from);
         }
         let input = corrected_text.as_str();
