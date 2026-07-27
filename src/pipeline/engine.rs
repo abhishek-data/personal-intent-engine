@@ -60,6 +60,10 @@ pub struct PieEngine {
     learner_tx: Option<mpsc::Sender<LearnTask>>,
     learned_vocab_path: Option<PathBuf>,
     learned_mtime: Option<std::time::SystemTime>,
+    /// When true, `process()` translates spoken code phrases (e.g. "console
+    /// dot log" -> "console.log(") after pronunciation correction and before
+    /// intent extraction. Off by default.
+    code_mode: bool,
 }
 
 /// Default on-disk location for the learned/synced vocabulary store. Mirrors
@@ -89,6 +93,7 @@ impl PieEngine {
             learner_tx: None,
             learned_vocab_path: Some(default_learned_vocab_path()),
             learned_mtime: None,
+            code_mode: false,
         })
     }
 
@@ -106,6 +111,11 @@ impl PieEngine {
         self.llm = crate::llm::LlmRouter::from_config(config);
     }
 
+    /// Enable/disable code-aware post-processing (spoken code -> syntax).
+    pub fn set_code_mode(&mut self, on: bool) {
+        self.code_mode = on;
+    }
+
     /// Test/ephemeral engine: performs NO disk persistence. Memory lives only
     /// in-process (never saved), and the corrector reads/writes an isolated
     /// `user_dict_path` instead of the real user config — so integration tests
@@ -121,6 +131,7 @@ impl PieEngine {
             learner_tx: None,
             learned_vocab_path: None,
             learned_mtime: None,
+            code_mode: false,
         }
     }
 
@@ -190,6 +201,11 @@ impl PieEngine {
             .map(|t| t.to_lowercase())
             .collect();
         let correction = self.corrector.correct(input, &allowed);
+        let corrected_text = if self.code_mode {
+            crate::corrector::code_phrases::apply_code_phrases(&correction.text)
+        } else {
+            correction.text.clone()
+        };
         for fix in &correction.applied {
             // `from` is the lowercased heard phrase; reinforce if it's learned.
             // NOTE: when background mining is on, this reinforcement and the
@@ -206,7 +222,7 @@ impl PieEngine {
             // follow-up must cover synced data too, not just auto-learned vocab.
             let _ = self.corrector.reinforce_learned(&fix.from);
         }
-        let input = correction.text.as_str();
+        let input = corrected_text.as_str();
 
         // Step 1: Extract intent
         let intent = self.extractor.extract(input);
@@ -257,7 +273,7 @@ impl PieEngine {
             optimized_prompt: optimized.text,
             mode: optimized.mode,
             estimated_tokens: optimized.estimated_tokens,
-            corrected_transcript: correction.text.clone(),
+            corrected_transcript: corrected_text.clone(),
             applied: correction.applied,
             refine_request,
         })
@@ -533,6 +549,47 @@ mod tests {
             .await;
         assert_eq!(refined, "ORIGINAL TEXT");
 
+        let _ = std::fs::remove_file(cpath);
+        let _ = std::fs::remove_file(lpath);
+    }
+
+    #[tokio::test]
+    async fn code_mode_translates_spoken_code() {
+        let dir = std::env::temp_dir();
+        let uid = format!("{}-{}", std::process::id(), line!());
+        let cpath = dir.join(format!("pie-cm-user-{uid}.json"));
+        let lpath = dir.join(format!("pie-cm-learned-{uid}.json"));
+        let mut engine = PieEngine::new_ephemeral_with_learned(cpath.clone(), lpath.clone());
+        engine.set_code_mode(true);
+        let res = engine
+            .process("console dot log hello", "compact")
+            .await
+            .unwrap();
+        assert!(
+            res.corrected_transcript.contains("console.log("),
+            "got: {}",
+            res.corrected_transcript
+        );
+        let _ = std::fs::remove_file(cpath);
+        let _ = std::fs::remove_file(lpath);
+    }
+
+    #[tokio::test]
+    async fn code_mode_off_leaves_transcript_untouched() {
+        let dir = std::env::temp_dir();
+        let uid = format!("{}-{}", std::process::id(), line!());
+        let cpath = dir.join(format!("pie-cm2-user-{uid}.json"));
+        let lpath = dir.join(format!("pie-cm2-learned-{uid}.json"));
+        let mut engine = PieEngine::new_ephemeral_with_learned(cpath.clone(), lpath.clone());
+        // default: code_mode off
+        let res = engine
+            .process("open the bracket please", "compact")
+            .await
+            .unwrap();
+        assert!(
+            !res.corrected_transcript.contains('['),
+            "off mode must not translate"
+        );
         let _ = std::fs::remove_file(cpath);
         let _ = std::fs::remove_file(lpath);
     }
