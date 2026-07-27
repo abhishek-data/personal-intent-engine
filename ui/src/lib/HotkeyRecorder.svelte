@@ -6,7 +6,16 @@
   // modifiers (which the Tauri shortcut parser accepts verbatim) and save it.
   // The current binding is suspended while capturing so it doesn't fire on the
   // keys being chosen.
-  let { settings, onSave, onError } = $props();
+  // `field` is the settings key this recorder edits (e.g. "hotkey_raw");
+  // `label` is the shown title; `defaultValue` is used by "Reset to default".
+  let {
+    settings,
+    onSave,
+    onError,
+    field = "hotkey_optimized",
+    label = "Global hotkey",
+    defaultValue = "CmdOrCtrl+Shift+Space",
+  } = $props();
 
   let capturingHotkey = $state(false);
   const MODIFIER_CODES = [
@@ -31,7 +40,7 @@
       await invoke("set_hotkey_active", { active: true }).catch(() => {});
       return;
     }
-    settings.hotkey = newHotkey;
+    settings[field] = newHotkey;
     await onSave(); // update_settings re-registers the new hotkey
   }
 
@@ -58,12 +67,12 @@
   }
 
   function resetHotkey() {
-    settings.hotkey = "CmdOrCtrl+Shift+Space";
+    settings[field] = defaultValue;
     onSave();
   }
 
   function disableHotkey() {
-    settings.hotkey = "";
+    settings[field] = "";
     onSave();
   }
 </script>
@@ -72,13 +81,13 @@
 
 <section class="group">
   <div class="field">
-    <span class="field-label">Global hotkey</span>
+    <span class="field-label">{label}</span>
     <div class="hotkey-row">
       <div class="hotkey-display" class:capturing={capturingHotkey}>
         {#if capturingHotkey}
           <span class="capture-hint">Press a combo…</span>
-        {:else if settings.hotkey}
-          {#each keycaps(settings.hotkey) as cap}
+        {:else if settings[field]}
+          {#each keycaps(settings[field]) as cap}
             <kbd>{cap}</kbd>
           {/each}
         {:else}
