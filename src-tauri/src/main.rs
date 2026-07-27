@@ -47,6 +47,11 @@ struct AppState {
     engine: tokio::sync::Mutex<PieEngine>,
     /// Local SQLite history of recordings.
     history: Mutex<HistoryStore>,
+    /// Paste mode captured when the current recording started: "transcript" or
+    /// "prompt". Set from the hotkey that fired (raw vs optimized), or from
+    /// `settings.paste_output` for the UI record button. Read by the stop/paste
+    /// path and the refine gate.
+    pending_paste_mode: Mutex<String>,
 }
 
 /// Result payload for the frontend after a recording is processed.
@@ -114,6 +119,10 @@ fn do_start_recording(app: &AppHandle) -> Result<(), String> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
+    // NOTE: the paste mode for this recording is set by the caller before
+    // starting — on_hotkey_with_mode sets the hotkey's mode; the UI
+    // `start_recording` command sets `settings.paste_output`. do_start_recording
+    // must NOT touch pending_paste_mode or it would clobber the hotkey's choice.
     let (mut recorder, vad_active) = {
         let mut vad_cache = state.vad_cache.lock().unwrap_or_else(|e| e.into_inner());
         build_recorder(&settings, &mut vad_cache).map_err(|e| e.to_string())?
@@ -205,11 +214,16 @@ async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Ou
     // Long-conversation refine (Phase 5): compress the optimized prompt via an
     // LLM pass when process() flagged the input as needing it. Falls back to
     // the original prompt on any LLM failure/empty reply. Only worth the LLM
-    // round-trip when the optimized prompt is actually what gets pasted
-    // (paste_output == "prompt"); otherwise the transcript is pasted and the
-    // refined prompt would never be surfaced, so skip it to save latency on
-    // the hotkey path.
-    if settings.paste_output == "prompt" {
+    // round-trip when the optimized prompt is actually what gets pasted (this
+    // recording's paste mode == "prompt"); otherwise the transcript is pasted
+    // and the refined prompt would never be surfaced, so skip it to save
+    // latency on the hotkey path.
+    let paste_mode = state
+        .pending_paste_mode
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    if paste_mode == "prompt" {
         if let Some(req) = result.refine_request.take() {
             let refined = engine
                 .apply_refine(
@@ -293,9 +307,10 @@ async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Ou
 
 /* ─── global hotkey ─── */
 
-/// Toggle handler: first press starts recording, second press stops,
-/// transcribes, and pastes the result into the app that has focus.
-fn on_hotkey(app: &AppHandle) {
+/// Toggle handler carrying a paste mode: first press starts recording (and
+/// records which output this hotkey wants — "transcript" or "prompt"), second
+/// press stops, transcribes, and pastes that output into the focused app.
+fn on_hotkey_with_mode(app: &AppHandle, mode: &str) {
     let Some(state) = app.try_state::<AppState>() else {
         log::error!("on_hotkey: app state unavailable");
         return;
@@ -305,9 +320,15 @@ fn on_hotkey(app: &AppHandle) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .is_some();
-    log::debug!("on_hotkey: recording={recording}");
+    log::debug!("on_hotkey: recording={recording} mode={mode}");
 
     if !recording {
+        // Capture the paste mode for this recording BEFORE starting, so the
+        // stop/paste path (and the refine gate) use the mode this hotkey wants.
+        *state
+            .pending_paste_mode
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = mode.to_string();
         if let Err(e) = do_start_recording(app) {
             log::warn!("Hotkey start failed: {e}");
             emit_event(app, "pie://error", e);
@@ -327,11 +348,12 @@ fn on_hotkey(app: &AppHandle) {
                     log::error!("hotkey paste: app state unavailable");
                     return;
                 };
-                let settings = {
-                    let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
-                    s.clone()
-                };
-                let text = if settings.paste_output == "prompt" {
+                let paste_mode = state
+                    .pending_paste_mode
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                let text = if paste_mode == "prompt" {
                     outcome.optimized_prompt
                 } else {
                     outcome.transcript
@@ -357,34 +379,43 @@ fn on_hotkey(app: &AppHandle) {
     });
 }
 
-/// (Re-)register the global shortcut from settings. An empty string disables
-/// the hotkey. The string is parsed *before* the current shortcut is
-/// unregistered, so an invalid combo returns an error and leaves the working
-/// hotkey intact.
-fn register_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
-    let shortcuts = app.global_shortcut();
+/// (Re-)register BOTH global hotkeys from settings. Clears all existing
+/// bindings first, then registers each; an invalid or empty binding is logged
+/// and skipped — never fatal, and one bad hotkey never blocks the other.
+fn register_hotkeys(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    let _ = app.global_shortcut().unregister_all();
+    register_one(app, &settings.hotkey_raw, "transcript");
+    register_one(app, &settings.hotkey_optimized, "prompt");
+    Ok(())
+}
+
+/// Register one shortcut bound to a paste `mode`. Empty = disabled; a parse or
+/// registration failure is logged and skipped (non-fatal).
+fn register_one(app: &AppHandle, hotkey: &str, mode: &'static str) {
     let trimmed = hotkey.trim();
     if trimmed.is_empty() {
-        shortcuts.unregister_all().map_err(|e| e.to_string())?;
-        log::info!("Global hotkey disabled");
-        return Ok(());
+        log::info!("Hotkey ({mode}) disabled");
+        return;
     }
-    let shortcut: Shortcut = trimmed
-        .parse()
-        .map_err(|e| format!("Invalid hotkey '{hotkey}': {e}"))?;
-    shortcuts.unregister_all().map_err(|e| e.to_string())?;
-    shortcuts
+    let shortcut: Shortcut = match trimmed.parse() {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("Invalid hotkey '{hotkey}' ({mode}): {e}");
+            return;
+        }
+    };
+    let res = app
+        .global_shortcut()
         .on_shortcut(shortcut, move |app, fired, event| {
-            // Only the registered shortcut reaches here; log at debug for
-            // diagnosing "did my hotkey fire?" without noise at info level.
             if event.state() == ShortcutState::Pressed {
-                log::debug!("Hotkey fired: {fired:?}");
-                on_hotkey(app);
+                log::debug!("Hotkey fired ({mode}): {fired:?}");
+                on_hotkey_with_mode(app, mode);
             }
-        })
-        .map_err(|e| format!("Failed to register hotkey '{hotkey}': {e}"))?;
-    log::info!("Global hotkey registered: {hotkey}");
-    Ok(())
+        });
+    match res {
+        Ok(()) => log::info!("Hotkey registered ({mode}): {hotkey}"),
+        Err(e) => log::error!("Failed to register hotkey '{hotkey}' ({mode}): {e}"),
+    }
 }
 
 /* ─── commands ─── */
@@ -404,16 +435,15 @@ async fn update_settings(
     state: State<'_, AppState>,
     settings: Settings,
 ) -> Result<(), String> {
-    let hotkey_changed = {
+    let hotkeys_changed = {
         let current = state.settings.lock().unwrap_or_else(|e| e.into_inner());
-        current.hotkey_optimized != settings.hotkey_optimized
+        current.hotkey_raw != settings.hotkey_raw
+            || current.hotkey_optimized != settings.hotkey_optimized
     };
-    // Register the new hotkey BEFORE persisting: if it's invalid, we return the
-    // error without saving a broken binding (and the old one stays active).
-    // The whisper cache checks (path, language) on next use, so model/language
-    // changes reload naturally — only the hotkey needs re-wiring.
-    if hotkey_changed {
-        register_hotkey(&app, &settings.hotkey_optimized)?;
+    // Re-register both hotkeys when either changed. Registration is non-fatal
+    // (a bad binding is logged and skipped), so this can't fail the save.
+    if hotkeys_changed {
+        register_hotkeys(&app, &settings)?;
     }
     let llm_changed = {
         let current = state.settings.lock().unwrap_or_else(|e| e.into_inner());
@@ -441,13 +471,12 @@ fn set_hotkey_active(
     active: bool,
 ) -> Result<(), String> {
     if active {
-        let hotkey = state
+        let settings = state
             .settings
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .hotkey_optimized
             .clone();
-        register_hotkey(&app, &hotkey)
+        register_hotkeys(&app, &settings)
     } else {
         app.global_shortcut()
             .unregister_all()
@@ -457,6 +486,19 @@ fn set_hotkey_active(
 
 #[tauri::command]
 fn start_recording(app: AppHandle) -> Result<(), String> {
+    // UI record button: paste the configured default output.
+    if let Some(state) = app.try_state::<AppState>() {
+        let default_mode = state
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .paste_output
+            .clone();
+        *state
+            .pending_paste_mode
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = default_mode;
+    }
     do_start_recording(&app)
 }
 
@@ -1039,7 +1081,8 @@ fn main() {
             let settings = Settings::load();
             let engine =
                 tauri::async_runtime::block_on(PieEngine::with_config(&llm_config(&settings)))?;
-            let hotkey = settings.hotkey_optimized.clone();
+            let default_paste_mode = settings.paste_output.clone();
+            let settings_for_hotkeys = settings.clone();
             let history_path = dirs::config_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join("pie")
@@ -1067,6 +1110,7 @@ fn main() {
                 whisper: Mutex::new(None),
                 engine: tokio::sync::Mutex::new(engine),
                 history: Mutex::new(history),
+                pending_paste_mode: Mutex::new(default_paste_mode),
             });
             app.manage(EnigoState::new());
 
@@ -1095,7 +1139,7 @@ fn main() {
                 tauri::async_runtime::spawn(async move { learner.run().await });
             }
 
-            if let Err(e) = register_hotkey(app.handle(), &hotkey) {
+            if let Err(e) = register_hotkeys(app.handle(), &settings_for_hotkeys) {
                 // A bad hotkey must not prevent the app from starting.
                 log::error!("{e}");
             }
