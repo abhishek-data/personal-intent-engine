@@ -5,7 +5,7 @@
 
 <section class="group">
   <div class="field">
-    <span class="field-label">Hotkey pastes</span>
+    <span class="field-label">Record-button output</span>
     <div class="segmented">
       <button
         class:active={settings.paste_output === "transcript"}
@@ -25,8 +25,9 @@
       >
     </div>
     <p class="caption">
-      What lands in the focused app after the hotkey: raw speech, or the
-      PIE-structured prompt.
+      What the on-screen record button pastes: raw speech, or the PIE-structured
+      prompt. The two global hotkeys have fixed outputs (raw vs optimized) and
+      ignore this.
     </p>
   </div>
 </section>

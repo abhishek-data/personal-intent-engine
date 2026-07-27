@@ -31,7 +31,8 @@
     llm_api_url: "",
     llm_api_key: "",
     llm_model: "",
-    hotkey: "CmdOrCtrl+Shift+Space",
+    hotkey_raw: "CmdOrCtrl+Shift+V",
+    hotkey_optimized: "CmdOrCtrl+Shift+Space",
     paste_output: "transcript",
     history_limit: 10,
     deep_correct_ai: false,
@@ -210,7 +211,7 @@
       {outcome}
       {llmResponse}
       {llmBusy}
-      hotkey={settings.hotkey}
+      hotkey={settings.hotkey_optimized}
       {stateLabel}
       onToggle={toggleRecording}
       onCancel={cancelRecording}
@@ -236,7 +237,10 @@
     <TranscriptionSettings {settings} onSave={save} />
     <LLMSettings {settings} onSave={save} />
     <OutputSettings {settings} onSave={save} />
-    <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }} />
+    <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }}
+      field="hotkey_raw" label="Raw paste hotkey" defaultValue="CmdOrCtrl+Shift+V" />
+    <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }}
+      field="hotkey_optimized" label="Optimized paste hotkey" defaultValue="CmdOrCtrl+Shift+Space" />
     <VocabularySettings {settings} onSave={save} onError={(e) => { error = e; }} />
     <VocabularySync {settings} onSave={save} onError={(e) => { error = e; }} />
     <HistorySettings {settings} onSave={save} />
