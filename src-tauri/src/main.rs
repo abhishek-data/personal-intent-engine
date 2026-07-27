@@ -1113,10 +1113,6 @@ fn main() {
             let learner_provider = settings.provider.clone();
             let learner_model =
                 (!settings.llm_model.is_empty()).then(|| settings.llm_model.clone());
-            let learned_vocab_path = dirs::config_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("pie")
-                .join("learned_vocab.json");
             app.manage(AppState {
                 settings: Mutex::new(settings),
                 recorder: Mutex::new(None),
@@ -1133,20 +1129,27 @@ fn main() {
             // from transcripts via the configured LLM. OFF by default, so no
             // background LLM calls happen unless the user enables it.
             if mining {
+                // Pipeline -> learner: transcripts to mine.
                 let (tx, rx) =
                     tokio::sync::mpsc::channel::<pie_engine::pipeline::engine::LearnTask>(100);
+                // Learner -> engine: mined corrections the engine applies (the
+                // engine is the sole writer of learned_vocab.json — no race).
+                let (mined_tx, mined_rx) = tokio::sync::mpsc::channel::<
+                    pie_engine::corrector::learner::ExtractedCorrection,
+                >(100);
                 {
                     let state = app.state::<AppState>();
-                    // Attach the sender to the engine so process() fires tasks.
                     tauri::async_runtime::block_on(async {
-                        state.engine.lock().await.set_learner_tx(tx);
+                        let mut engine = state.engine.lock().await;
+                        engine.set_learner_tx(tx); // process() fires transcripts
+                        engine.set_mined_rx(mined_rx); // process() drains mined terms
                     });
                 }
                 let llm = pie_engine::llm::LlmRouter::from_config(&learner_cfg);
                 let learner = pie_engine::corrector::learner::BackgroundLearner::new(
                     rx,
                     llm,
-                    learned_vocab_path,
+                    mined_tx,
                     learner_provider,
                     learner_model,
                     std::collections::HashSet::new(),

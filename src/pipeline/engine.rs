@@ -58,6 +58,11 @@ pub struct PieEngine {
     stt: Option<Box<dyn SttEngine>>,
     corrector: PronunciationCorrector,
     learner_tx: Option<mpsc::Sender<LearnTask>>,
+    /// Mined corrections coming back from the background learner. The engine is
+    /// the SOLE writer of `learned_vocab.json`: it drains this in `process()`
+    /// and applies each via `add_auto_correction`, so reinforcement, sync, and
+    /// mining all write through one owner (no concurrent-writer race).
+    mined_rx: Option<mpsc::Receiver<crate::corrector::learner::ExtractedCorrection>>,
     learned_vocab_path: Option<PathBuf>,
     learned_mtime: Option<std::time::SystemTime>,
     /// When true, `process()` translates spoken code phrases (e.g. "console
@@ -91,6 +96,7 @@ impl PieEngine {
             stt: None,
             corrector,
             learner_tx: None,
+            mined_rx: None,
             learned_vocab_path: Some(default_learned_vocab_path()),
             learned_mtime: None,
             code_mode: false,
@@ -129,6 +135,7 @@ impl PieEngine {
             stt: None,
             corrector: PronunciationCorrector::with_user_path(user_dict_path),
             learner_tx: None,
+            mined_rx: None,
             learned_vocab_path: None,
             learned_mtime: None,
             code_mode: false,
@@ -163,6 +170,25 @@ impl PieEngine {
         self.process(text, mode).await
     }
 
+    /// Drain corrections mined by the background learner and apply them via
+    /// `add_auto_correction` (the engine owns the corrector and is the sole
+    /// writer of learned_vocab.json). Non-blocking; errors on a single term
+    /// are ignored rather than failing the pipeline.
+    fn drain_mined(&mut self) {
+        let Some(rx) = &mut self.mined_rx else {
+            return;
+        };
+        let mut terms = Vec::new();
+        while let Ok(term) = rx.try_recv() {
+            terms.push(term);
+        }
+        for term in terms {
+            let _ = self
+                .corrector
+                .add_auto_correction(&term.heard, &term.canonical);
+        }
+    }
+
     /// Reload learned vocab if the file changed since we last looked. Cheap
     /// stat; only rebuilds when mtime advanced.
     fn maybe_reload_learned(&mut self) {
@@ -186,8 +212,13 @@ impl PieEngine {
     pub async fn process(&mut self, input: &str, mode: &str) -> anyhow::Result<PieResult> {
         let raw = input.to_string();
 
-        // Reload learned vocab if the background learner appended since we
-        // last looked, so this turn benefits from it.
+        // Apply any corrections the background learner mined since last turn.
+        // The engine is the sole writer of learned_vocab.json, so these land
+        // through the same corrector as reinforcement and sync (no file race).
+        self.drain_mined();
+
+        // Reload learned vocab in case the file changed on disk (e.g. an
+        // external edit or a sync run from another path), so this turn sees it.
         self.maybe_reload_learned();
 
         // Step 0: Correct speech-to-text jargon errors before anything else.
@@ -208,18 +239,12 @@ impl PieEngine {
         };
         for fix in &correction.applied {
             // `from` is the lowercased heard phrase; reinforce if it's learned.
-            // NOTE: when background mining is on, this reinforcement and the
-            // learner's `run()` (learner.rs) are two independent writers of
-            // learned_vocab.json, each doing load-modify-save from its own
-            // snapshot, so a concurrent write can lose an update. Bounded to
-            // opt-in auto-learned vocab (never user/static data); it self-heals
-            // on the next mtime reload. Planned fix: funnel writes through a
-            // single owner (tracked follow-up).
-            // Synced (user-imported) entries from `corrector::sync` also live in
-            // this same file, sharing this race, but they do NOT self-heal: an
-            // import is one-shot, so a lost update from a concurrent write is
-            // permanent until the user re-imports. The tracked single-writer
-            // follow-up must cover synced data too, not just auto-learned vocab.
+            // This write is safe: the engine is the SOLE writer of
+            // learned_vocab.json — reinforcement, sync (add_synced_correction),
+            // and mined terms (drain_mined) all go through this one
+            // engine-owned corrector, serialized behind the app's engine mutex.
+            // The background learner only sends candidates over a channel and
+            // never touches the file, so there is no concurrent-writer race.
             let _ = self.corrector.reinforce_learned(&fix.from);
         }
         let input = corrected_text.as_str();
@@ -339,6 +364,15 @@ impl PieEngine {
     /// every turn (non-blocking; dropped if the channel is full or closed).
     pub fn set_learner_tx(&mut self, tx: mpsc::Sender<LearnTask>) {
         self.learner_tx = Some(tx);
+    }
+
+    /// Attach the channel on which the background learner returns mined
+    /// corrections; `process()` drains and applies them.
+    pub fn set_mined_rx(
+        &mut self,
+        rx: mpsc::Receiver<crate::corrector::learner::ExtractedCorrection>,
+    ) {
+        self.mined_rx = Some(rx);
     }
 
     /// Number of learned (auto + synced) corrections, for UI display.
@@ -570,6 +604,33 @@ mod tests {
             "got: {}",
             res.corrected_transcript
         );
+        let _ = std::fs::remove_file(cpath);
+        let _ = std::fs::remove_file(lpath);
+    }
+
+    #[tokio::test]
+    async fn drains_mined_corrections_and_applies_them() {
+        use crate::corrector::learner::ExtractedCorrection;
+        let dir = std::env::temp_dir();
+        let uid = format!("{}-{}", std::process::id(), line!());
+        let cpath = dir.join(format!("pie-mined-user-{uid}.json"));
+        let lpath = dir.join(format!("pie-mined-learned-{uid}.json"));
+        let mut engine = PieEngine::new_ephemeral_with_learned(cpath.clone(), lpath.clone());
+        let (tx, rx) = tokio::sync::mpsc::channel::<ExtractedCorrection>(10);
+        engine.set_mined_rx(rx);
+        tx.send(ExtractedCorrection {
+            heard: "terra form".into(),
+            canonical: "Terraform".into(),
+        })
+        .await
+        .unwrap();
+        // process() drains the channel and applies via add_auto_correction.
+        let res = engine
+            .process("i use terra form daily", "compact")
+            .await
+            .unwrap();
+        assert_eq!(res.corrected_transcript, "i use Terraform daily");
+        assert_eq!(engine.corrector_learned_count(), 1);
         let _ = std::fs::remove_file(cpath);
         let _ = std::fs::remove_file(lpath);
     }
