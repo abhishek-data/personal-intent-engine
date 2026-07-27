@@ -36,6 +36,7 @@
     paste_output: "transcript",
     history_limit: 10,
     deep_correct_ai: false,
+    code_mode: false,
   });
   let saved = $state(false);
   let savedTimer;

@@ -39,6 +39,10 @@ pub struct Settings {
     /// When true, run the opt-in background learner that mines new
     /// pronunciation corrections from transcripts via the configured LLM.
     pub background_mining: bool,
+    /// When true, translate spoken code patterns into syntax ("console dot log"
+    /// -> "console.log(") after pronunciation correction. Off by default so
+    /// ordinary dictation is never affected.
+    pub code_mode: bool,
 }
 
 impl Default for Settings {
@@ -58,6 +62,7 @@ impl Default for Settings {
             history_limit: 10,
             deep_correct_ai: false,
             background_mining: false,
+            code_mode: false,
         }
     }
 }
@@ -160,6 +165,7 @@ mod tests {
         assert_eq!(loaded.language, "auto");
         assert!(!loaded.deep_correct_ai);
         assert!(!loaded.background_mining);
+        assert!(!loaded.code_mode);
     }
 
     #[test]
