@@ -385,7 +385,16 @@ fn on_hotkey_with_mode(app: &AppHandle, mode: &str) {
 fn register_hotkeys(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     let _ = app.global_shortcut().unregister_all();
     register_one(app, &settings.hotkey_raw, "transcript");
-    register_one(app, &settings.hotkey_optimized, "prompt");
+    // If both hotkeys resolve to the same combo (e.g. a legacy install whose
+    // single hotkey migrated into `hotkey_raw` while `hotkey_optimized` kept its
+    // identical default), register only the first — a double registration of one
+    // shortcut is ambiguous. Raw wins, preserving the legacy transcript output.
+    let opt = settings.hotkey_optimized.trim();
+    if !opt.is_empty() && opt == settings.hotkey_raw.trim() {
+        log::warn!("optimized hotkey equals the raw hotkey ('{opt}'); skipping the optimized binding so the raw/transcript hotkey wins — rebind one in Settings");
+    } else {
+        register_one(app, &settings.hotkey_optimized, "prompt");
+    }
     Ok(())
 }
 

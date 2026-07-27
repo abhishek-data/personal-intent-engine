@@ -1,11 +1,12 @@
 <script>
-  // Output pane: what the hotkey pastes after transcription.
+  // Output pane: default output mode for window-initiated recordings.
+  // (The two global hotkeys have their own fixed outputs.)
   let { settings, onSave } = $props();
 </script>
 
 <section class="group">
   <div class="field">
-    <span class="field-label">Record-button output</span>
+    <span class="field-label">Record-window default</span>
     <div class="segmented">
       <button
         class:active={settings.paste_output === "transcript"}
@@ -25,9 +26,9 @@
       >
     </div>
     <p class="caption">
-      What the on-screen record button pastes: raw speech, or the PIE-structured
-      prompt. The two global hotkeys have fixed outputs (raw vs optimized) and
-      ignore this.
+      Default output mode for recordings started from this window (long prompts
+      are only refined for “Optimized prompt”). The two global hotkeys have their
+      own fixed outputs — raw vs optimized — and ignore this.
     </p>
   </div>
 </section>
