@@ -241,7 +241,12 @@ async fn transcribe_and_process(app: &AppHandle, samples: Vec<f32>) -> Result<Ou
     // the deterministic result and fold in any extra fixes it finds. Never
     // fails the recording — an LLM error just falls back to the deterministic
     // transcript already computed above.
-    let (final_transcript, applied_fixes) = if settings.deep_correct_ai {
+    //
+    // Skip it in code mode: the transcript here already contains translated code
+    // syntax ("console.log(", "==="), and deep-correct is a *pronunciation*
+    // fixer — running it over syntax would likely undo the translation. The two
+    // opt-ins don't compose, so code mode wins.
+    let (final_transcript, applied_fixes) = if settings.deep_correct_ai && !settings.code_mode {
         match engine
             .deep_correct(
                 &result.corrected_transcript,
