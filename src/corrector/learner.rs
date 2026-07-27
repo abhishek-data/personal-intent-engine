@@ -3,14 +3,12 @@
 //! burns credits. OFF by default; spawned only when the user enables it.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
-use crate::corrector::learned::{LearnedSource, LearnedStore};
 use crate::llm::LlmRouter;
 use crate::pipeline::engine::LearnTask;
 
@@ -61,11 +59,14 @@ pub fn build_extraction_prompt(batch: &[LearnTask]) -> String {
     )
 }
 
-/// The background learner task.
+/// The background learner task. A pure miner: it never touches
+/// `learned_vocab.json`. Mined corrections are sent back to the engine over
+/// `out`, and the engine (the sole writer) applies them — so there is no
+/// concurrent-writer race on the learned-vocab file.
 pub struct BackgroundLearner {
     rx: mpsc::Receiver<LearnTask>,
     llm: LlmRouter,
-    learned_path: PathBuf,
+    out: mpsc::Sender<ExtractedCorrection>,
     provider: String,
     model: Option<String>,
     known: HashSet<String>,
@@ -73,15 +74,15 @@ pub struct BackgroundLearner {
 }
 
 impl BackgroundLearner {
-    /// Build a new background learner. `known` starts empty at the call site
-    /// (main.rs) rather than pre-seeded from existing correction tiers;
-    /// duplicate mining is instead prevented per-batch by the on-disk
-    /// `has_entry` check against the learned store. Pre-seeding `known` from
-    /// the current dict is a deferred future refinement.
+    /// Build a new background learner. `out` is the channel on which mined
+    /// corrections are returned to the engine. `known` starts empty at the call
+    /// site (main.rs); it only prevents re-sending the same term within a
+    /// session — the engine's `add_auto_correction` is idempotent, so a
+    /// cross-session duplicate simply reinforces the existing entry.
     pub fn new(
         rx: mpsc::Receiver<LearnTask>,
         llm: LlmRouter,
-        learned_path: PathBuf,
+        out: mpsc::Sender<ExtractedCorrection>,
         provider: String,
         model: Option<String>,
         known: HashSet<String>,
@@ -89,7 +90,7 @@ impl BackgroundLearner {
         Self {
             rx,
             llm,
-            learned_path,
+            out,
             provider,
             model,
             known,
@@ -136,29 +137,24 @@ impl BackgroundLearner {
             if terms.is_empty() {
                 continue;
             }
-            // NOTE: when background mining is on, this load-modify-save and the
-            // engine's `reinforce_learned` call in pipeline/engine.rs are two
-            // independent writers of learned_vocab.json, each from its own
-            // snapshot, so a concurrent write can lose an update. Bounded to
-            // opt-in auto-learned vocab (never user/static data); it self-heals
-            // on the next mtime reload. Planned fix: funnel writes through a
-            // single owner (tracked follow-up).
-            // Synced (user-imported) entries from `corrector::sync` also live in
-            // this same file, sharing this race, but they do NOT self-heal: an
-            // import is one-shot, so a lost update from a concurrent write is
-            // permanent until the user re-imports. The tracked single-writer
-            // follow-up must cover synced data too, not just auto-learned vocab.
-            let mut store = LearnedStore::load(self.learned_path.clone());
+            // Send each newly-mined term back to the engine, which is the sole
+            // writer of learned_vocab.json (applies via add_auto_correction).
+            // `known` avoids re-sending within a session; cross-session dups are
+            // harmless (the engine's add is idempotent/reinforcing).
             for t in terms {
                 let key = t.heard.trim().to_lowercase();
-                if key.is_empty() || self.known.contains(&key) || store.has_entry(&key) {
+                if key.is_empty() || self.known.contains(&key) {
                     continue;
                 }
-                if store
-                    .add_or_reinforce(&t.heard, &t.canonical, LearnedSource::Auto)
-                    .is_ok()
-                {
-                    self.known.insert(key);
+                match self.out.try_send(t) {
+                    Ok(()) => {
+                        self.known.insert(key);
+                    }
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        // Engine hasn't drained yet; drop this one, it'll be
+                        // re-mined on a later batch.
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => return, // engine gone
                 }
             }
         }
