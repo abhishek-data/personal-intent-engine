@@ -1,0 +1,180 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-14, windows-latest]
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        working-directory: ui
+        run: npm install
+
+      # Import the self-signed code-signing certificate into a temporary keychain
+      # so the macOS app is signed with a STABLE identity ("PIE Developers")
+      # instead of ad-hoc. A stable signing identity is what lets macOS TCC keep
+      # the Accessibility/Microphone grants across app updates — ad-hoc builds
+      # change identity every version and force the user to re-grant every time.
+      # This is self-signed (not an Apple Developer ID), so it does NOT notarize;
+      # Gatekeeper still shows the "unverified" prompt on first download (handled
+      # by the install script's xattr strip or "Open Anyway").
+      - name: Import macOS signing certificate
+        if: matrix.platform == 'macos-14'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # A missing signing cert must NOT fail the whole release. When the
+          # APPLE_CERTIFICATE secret is absent, fall back to ad-hoc signing so
+          # the build still produces artifacts (users just re-grant TCC on
+          # update). When present, sign with the stable "PIE Developers" identity.
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "No APPLE_CERTIFICATE secret set — falling back to ad-hoc signing."
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/pie-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          CERT_PATH="$RUNNER_TEMP/pie-cert.p12"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERT_PATH" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -A
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # Prepend our keychain to the user search list so codesign finds the identity.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/[" ]//g')
+          rm -f "$CERT_PATH"
+          echo "Signing identities available:"
+          # Self-signed certs list as "0 valid" here (no trusted chain) yet still
+          # sign fine, so this is informational only — never gate the build on it.
+          security find-identity -v "$KEYCHAIN" || true
+          echo "APPLE_SIGNING_IDENTITY=PIE Developers" >> "$GITHUB_ENV"
+
+      # tauri-action installs the Tauri CLI, builds the frontend + app, bundles
+      # the .dmg / .exe, and uploads them to a GitHub release. On macOS,
+      # APPLE_SIGNING_IDENTITY (set by the import step above via $GITHUB_ENV —
+      # "PIE Developers" when the cert is present, "-" for ad-hoc otherwise)
+      # overrides tauri.conf.json's signingIdentity. On Windows the import step
+      # is skipped so the variable is unset and ignored. Notarization env
+      # (APPLE_ID/APPLE_PASSWORD) is intentionally unset — this is a self-signed,
+      # non-notarized distribution.
+      - name: Build app and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'PIE ${{ github.ref_name }}'
+          # The macOS app is ad-hoc signed (no Apple Developer ID), so Gatekeeper
+          # blocks it on first launch. The one-line install script handles the
+          # xattr -cr quarantine strip automatically; manual DMG users must run it.
+          releaseBody: |
+            ## Install
+
+            ### macOS (Apple Silicon) — one line
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/abhishek-data/personal-intent-engine/main/scripts/install.sh | bash
+            ```
+
+            Downloads the DMG, installs PIE to /Applications, and strips the Gatekeeper quarantine attribute so it opens without any prompts.
+
+            ### Homebrew
+
+            ```bash
+            brew tap abhishek-data/pie https://github.com/abhishek-data/homebrew-pie
+            brew install --cask abhishek-data/pie/pie
+            xattr -cr /Applications/PIE.app
+            ```
+
+            ### Manual DMG
+
+            Download the `.dmg` below, drag PIE to Applications, then run:
+
+            ```bash
+            xattr -cr /Applications/PIE.app
+            ```
+
+            (Or right-click PIE → Open the first time and confirm at the Gatekeeper prompt.)
+
+            ### Windows
+
+            Run the `.exe` installer below. If SmartScreen warns, click **More info → Run anyway**.
+
+            ---
+
+            Builds are unsigned (ad-hoc only). On first run, grant **Microphone** and **Accessibility** permission (Accessibility is needed to paste the prompt at your cursor).
+          releaseDraft: true
+          prerelease: true
+
+      # Guard against a silent signing regression. macOS TCC pins the
+      # Accessibility / Microphone grants users give PIE to this exact
+      # self-signed leaf certificate (SHA-1 below). If a release is ever signed
+      # with a DIFFERENT identity, every existing user's grant silently breaks
+      # and they must re-grant after updating. Two cases:
+      #   * signed with a DIFFERENT cert (regenerated .p12)  -> hard fail.
+      #   * ad-hoc fallback (APPLE_CERTIFICATE secret absent) -> loud warning,
+      #     release still proceeds (matches the deliberate fallback in the
+      #     "Import macOS signing certificate" step above).
+      #
+      # Rotating the cert is a BREAKING change: do NOT regenerate the .p12 to
+      # "refresh" it. If it genuinely must change, update EXPECTED_LEAF_SHA1 in
+      # the same commit and tell users the update needs a one-time re-grant.
+      # See docs/signing.md.
+      - name: Verify macOS signing identity is the pinned cert
+        if: matrix.platform == 'macos-14'
+        env:
+          EXPECTED_LEAF_SHA1: d318e19eaf8d165d5d5e16cd7d1817e7d8d4d854
+        run: |
+          set -euo pipefail
+          APP="$(find target/release/bundle/macos -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -1)"
+          if [ -z "$APP" ]; then
+            echo "::error::No built .app found under target/release/bundle/macos to verify."
+            exit 1
+          fi
+          echo "Verifying signature of $APP"
+          WORK="$(mktemp -d)"
+          codesign -d --extract-certificates="$WORK/cert" "$APP" 2>/dev/null || true
+          if [ ! -f "$WORK/cert0" ]; then
+            # Ad-hoc: no embedded certificate. Do not fail (deliberate fallback),
+            # but make the consequence impossible to miss in the run log.
+            echo "::error title=Ad-hoc signed release::PIE was signed ad-hoc (no stable cert). Users' Accessibility/Microphone grants WILL break on update. Set the APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD secrets to the stable 'PIE Developers' cert to fix this."
+            exit 0
+          fi
+          ACTUAL="$(openssl x509 -inform DER -in "$WORK/cert0" -noout -fingerprint -sha1 \
+                    | sed 's/.*=//; s/://g' | tr 'A-F' 'a-f')"
+          echo "Expected leaf SHA-1: $EXPECTED_LEAF_SHA1"
+          echo "Actual   leaf SHA-1: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED_LEAF_SHA1" ]; then
+            echo "::error title=Signing cert changed::PIE was signed with a different certificate than the pinned one. Every user's Accessibility/Microphone grant will break on update. If this change is intentional, update EXPECTED_LEAF_SHA1 in release.yml and note the required re-grant in the release notes (see docs/signing.md)."
+            exit 1
+          fi
+          echo "✓ Signed with the pinned stable 'PIE Developers' certificate."
