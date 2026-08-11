@@ -17,8 +17,14 @@ pub trait LlmClient: Send + Sync {
 
 /// Default bound on an LLM call made from the pipeline. Intent extraction sits
 /// on the interactive hotkey path, so a hung or unreachable provider must fail
-/// fast and fall back to rule-based extraction rather than freeze the app.
-pub const DEFAULT_LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// and fall back to rule-based extraction rather than freeze the app forever.
+///
+/// This is a **hang guard, not a latency budget**. Measured against a reasoning
+/// model (mimo-v2.5-pro), extraction ran a median of 7s with a tail past 20s on
+/// longer input — a 20s bound cut off legitimate requests and silently
+/// downgraded them to rule-based extraction. Keep this generous; control
+/// latency by choosing a faster model, not by clipping real responses.
+pub const DEFAULT_LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
 /// Production adapter: satisfies the [`LlmClient`] seam by delegating to an
 /// [`LlmRouter`] with a fixed provider/model.
