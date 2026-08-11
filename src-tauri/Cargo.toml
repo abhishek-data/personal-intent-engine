@@ -1,0 +1,41 @@
+[package]
+name = "pie-desktop"
+version = "0.2.0"
+edition = "2021"
+description = "PIE desktop app (Tauri)"
+license = "Apache-2.0"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# tray-icon: system tray; macos-private-api: transparent overlay window.
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
+enigo = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1"
+dirs = "6"
+tokio = { version = "1", features = ["sync", "fs", "io-util", "rt-multi-thread"] }
+# Streaming model downloads with progress.
+reqwest = { version = "0.12", features = ["stream", "rustls-tls"], default-features = false }
+futures-util = "0.3"
+# Native file/folder picker for vocabulary import.
+rfd = "0.15"
+
+# The engine does the actual work; the app is a thin shell over it.
+# default-features = false drops the CLI-only clap dependency.
+pie-engine = { path = "..", default-features = false, features = ["whisper", "vad"] }
+
+# macOS: the recording overlay must float over other apps without stealing
+# focus (a plain always-on-top window either won't show or grabs focus and
+# breaks paste). We create an NSPanel with a non-activating style directly via
+# objc2 (see src/nspanel.rs), so PIE owns this code with no external plugin.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = "0.3"
+objc2-foundation = "0.3"
