@@ -131,7 +131,9 @@ jobs:
 
             ---
 
-            Builds are unsigned (ad-hoc only). On first run, grant **Microphone** and **Accessibility** permission (Accessibility is needed to paste the prompt at your cursor).
+            macOS builds are signed with PIE's stable self-signed certificate (`PIE Developers`). It is not notarized, so first launch still needs the quarantine strip the installer performs. Because the certificate is stable, the permissions below survive future updates.
+
+            On first run, grant **Microphone** and **Accessibility** permission (Accessibility is needed to paste the prompt at your cursor).
           releaseDraft: true
           prerelease: true
 
