@@ -1,0 +1,37 @@
+/target
+*.o
+*.so
+*.dylib
+*.dll
+.DS_Store
+*.swp
+*.swo
+*~
+.env
+node_modules/
+dist/
+
+# Tauri generated artifacts
+src-tauri/gen/
+src-tauri/target/
+
+# Local agent/tool state
+.commandcode/
+.depwire/
+.pi/
+.serena/
+.superpowers/
+test_results.txt
+
+# Docs are default-deny: planning notes, design specs, audits, and scratch
+# files stay local. To publish a doc, add an explicit exception below.
+docs/*
+!docs/ARCHITECTURE.md
+!docs/INTENT_EXTRACTION_TEST_RESULTS.md
+!docs/RELEASING.md
+!docs/signing.md
+
+# Root-level planning notes
+/PLAN.md
+/NOTES.md
+/SCRATCH.md
