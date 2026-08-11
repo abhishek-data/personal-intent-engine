@@ -1,0 +1,49 @@
+{
+  "simple_commands": [
+    {
+      "input": "create a new file called main.rs",
+      "expected_intent": "create file",
+      "expected_type": "task"
+    },
+    {
+      "input": "what is the capital of France",
+      "expected_intent": "factual question",
+      "expected_type": "question"
+    }
+  ],
+  "rambling_speech": [
+    {
+      "input": "so I was thinking about this thing right, like, I want to build something that listens to me and figures out what I mean, you know, like, not just dictation but actually understanding, and then it should, like, make a prompt or something",
+      "expected_intent": "build intent extraction system",
+      "expected_type": "task",
+      "notes": "User's actual use case - rambling thought saving"
+    },
+    {
+      "input": "okay so um, I have this idea, it's like, okay so imagine you're talking and, uh, the system just knows what you're trying to say, right? like it corrects the words but also understands the, the meaning behind it",
+      "expected_intent": "build context-aware speech correction",
+      "expected_type": "brainstorm"
+    }
+  ],
+  "technical_jargon": [
+    {
+      "input": "set up a next jazz app with postgres no orm",
+      "expected_intent": "create Next.js app with PostgreSQL, no ORM",
+      "expected_type": "task",
+      "corrections_expected": ["next jazz -> Next.js"]
+    },
+    {
+      "input": "deploy to coobernetes with helm charts",
+      "expected_intent": "deploy to Kubernetes using Helm",
+      "expected_type": "task",
+      "corrections_expected": ["coobernetes -> Kubernetes"]
+    }
+  ],
+  "mixed_language": [
+    {
+      "input": "I want to build something jaisa ki ek voice assistant jo Hindi aur English dono samajh sake",
+      "expected_intent": "build bilingual voice assistant (Hindi+English)",
+      "expected_type": "task",
+      "notes": "Code-switching scenario"
+    }
+  ]
+}
