@@ -267,6 +267,10 @@ impl PieEngine {
         // failure use the deterministic rule-based extractor.
         let intent = match optimization_mode {
             OptimizationMode::Enhanced if self.llm.is_available("openai") => {
+                // `None` model = use the router's configured default (the
+                // user's BYOK model). Passing an explicit model here would
+                // hardcode a provider-specific name and break every BYOK
+                // setup whose provider doesn't serve it.
                 let client = RouterLlmClient::new(&self.llm, "openai", None);
                 let user_context = self.extraction_context();
                 self.extractor

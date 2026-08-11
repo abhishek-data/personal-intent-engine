@@ -17,6 +17,10 @@ pub struct LlmConfig {
 /// debug provider) and reports which providers are available.
 pub struct LlmRouter {
     client: Option<OpenAiClient>,
+    /// The user's configured default model. Used when a caller passes no
+    /// explicit model — notably LLM-backed intent extraction inside the
+    /// pipeline, which has no way to know the user's provider/model.
+    default_model: Option<String>,
 }
 
 impl Default for LlmRouter {
@@ -32,6 +36,7 @@ impl LlmRouter {
     pub fn new() -> Self {
         Self {
             client: OpenAiClient::from_env(),
+            default_model: std::env::var("OPENAI_MODEL").ok().filter(|m| !m.is_empty()),
         }
     }
 
@@ -40,13 +45,28 @@ impl LlmRouter {
     /// working.
     #[must_use]
     pub fn from_config(config: &LlmConfig) -> Self {
+        let default_model = Some(config.model.trim())
+            .filter(|m| !m.is_empty())
+            .map(String::from);
         if config.api_url.trim().is_empty() {
-            Self::new()
+            let mut router = Self::new();
+            // An explicitly configured model still applies over the env path.
+            if default_model.is_some() {
+                router.default_model = default_model;
+            }
+            router
         } else {
             Self {
                 client: Some(OpenAiClient::new(&config.api_url, &config.api_key)),
+                default_model,
             }
         }
+    }
+
+    /// The user's configured default model, if any.
+    #[must_use]
+    pub fn default_model(&self) -> Option<&str> {
+        self.default_model.as_deref()
     }
 
     /// Send a prompt to the specified provider
@@ -62,7 +82,11 @@ impl LlmRouter {
                     anyhow::anyhow!("No LLM client configured. Set OPENAI_API_KEY.")
                 })?;
 
-                let model_name = model.unwrap_or("gpt-4o-mini");
+                // Explicit caller model wins; otherwise the user's configured
+                // default; only then the built-in fallback.
+                let model_name = model
+                    .or(self.default_model.as_deref())
+                    .unwrap_or("gpt-4o-mini");
                 client.chat(prompt, model_name).await
             }
             "echo" => {
@@ -96,6 +120,30 @@ mod tests {
         };
         let router = LlmRouter::from_config(&cfg);
         assert!(router.is_available("openai"));
+    }
+
+    #[test]
+    fn from_config_retains_the_configured_model() {
+        // Regression: the configured model was dropped, so pipeline intent
+        // extraction (which passes no explicit model) silently requested
+        // "gpt-4o-mini" from every BYOK provider and failed.
+        let cfg = LlmConfig {
+            api_url: "https://api.example.com/v1".to_string(),
+            api_key: "sk-test".to_string(),
+            model: "mimo-v2.5-pro".to_string(),
+        };
+        let router = LlmRouter::from_config(&cfg);
+        assert_eq!(router.default_model(), Some("mimo-v2.5-pro"));
+    }
+
+    #[test]
+    fn from_config_empty_model_leaves_no_default() {
+        let cfg = LlmConfig {
+            api_url: "https://api.example.com/v1".to_string(),
+            api_key: "sk-test".to_string(),
+            model: String::new(),
+        };
+        assert_eq!(LlmRouter::from_config(&cfg).default_model(), None);
     }
 
     #[test]

@@ -6,6 +6,10 @@ use transcribe_cpp::{Backend, Model, ModelOptions, RunOptions, Session, StreamOp
 use super::stream::StreamCmd;
 use super::SttEngine;
 
+/// Shortest buffer whisper.cpp will accept, in 16 kHz mono samples (100 ms).
+/// Below this it fails with an opaque "invalid argument".
+const MIN_TRANSCRIBE_SAMPLES: usize = crate::audio::WHISPER_SAMPLE_RATE / 10;
+
 static BACKEND_INIT: Once = Once::new();
 
 /// Register transcribe-cpp compute backends once, before the first model load.
@@ -180,6 +184,18 @@ fn drain_until_finalize(rx: mpsc::Receiver<StreamCmd>) {
 
 impl SttEngine for WhisperEngine {
     fn transcribe(&self, samples: &[f32]) -> anyhow::Result<String> {
+        // whisper.cpp rejects very short buffers with a bare "invalid
+        // argument", which surfaces to users as a cryptic failure after a
+        // mis-tapped hotkey. Catch it here — at the seam every caller crosses
+        // — and report it in the same terms as a silent recording.
+        if samples.len() < MIN_TRANSCRIBE_SAMPLES {
+            anyhow::bail!(
+                "Recording too short to transcribe ({:.2}s captured, need at least {:.2}s). \
+                 Hold the hotkey while speaking.",
+                samples.len() as f32 / crate::audio::WHISPER_SAMPLE_RATE as f32,
+                MIN_TRANSCRIBE_SAMPLES as f32 / crate::audio::WHISPER_SAMPLE_RATE as f32,
+            );
+        }
         let run_options = self.run_options();
         let mut session = self.session.lock().expect("whisper session poisoned");
         session

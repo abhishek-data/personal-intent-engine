@@ -30,10 +30,19 @@ pub fn optimize(intent: &Intent, mode: OptimizationMode) -> String {
     }
 }
 
-/// Direct mode: pass through with minimal cleanup.
-/// For simple commands where intent is already clear.
+/// Direct mode: pass the user's (corrected) words through unchanged.
+///
+/// Deliberately uses `raw_input` rather than `objective`. `objective` is
+/// truncated at the first sentence boundary, so returning it silently dropped
+/// everything after the first sentence — "deploy the app. do not restart the
+/// database." optimized to just "deploy the app", losing the constraint. For
+/// short, already-clear input the safest prompt is what the user actually
+/// said. Falls back to `objective` only if `raw_input` is unset.
 fn direct(intent: &Intent) -> String {
-    intent.objective.clone()
+    if intent.raw_input.trim().is_empty() {
+        return intent.objective.clone();
+    }
+    intent.raw_input.clone()
 }
 
 /// Enhanced mode: structure the intent into a clear prompt.
@@ -76,6 +85,41 @@ mod tests {
     fn direct_passes_objective_through() {
         let out = optimize(&intent("deploy the app"), OptimizationMode::Direct);
         assert_eq!(out, "deploy the app");
+    }
+
+    #[test]
+    fn direct_does_not_drop_content_after_the_first_sentence() {
+        // Regression: Direct mode returned `objective`, which is truncated at
+        // the first sentence boundary — so a trailing instruction (here, a
+        // "do not" constraint) vanished from the prompt entirely.
+        let mut i = intent("deploy the app. do not restart the database.");
+        i.objective = "deploy the app".to_string();
+        i.constraints = vec!["do not restart the database".to_string()];
+        let out = optimize(&i, OptimizationMode::Direct);
+        assert!(
+            out.contains("do not restart the database"),
+            "Direct mode dropped the constraint: {out:?}"
+        );
+    }
+
+    #[test]
+    fn direct_falls_back_to_objective_when_raw_input_is_empty() {
+        let mut i = intent("x");
+        i.raw_input = String::new();
+        i.objective = "recovered objective".to_string();
+        assert_eq!(
+            optimize(&i, OptimizationMode::Direct),
+            "recovered objective"
+        );
+    }
+
+    #[test]
+    fn enhanced_keeps_trailing_constraints_too() {
+        let mut i = intent("deploy the app. do not restart the database.");
+        i.objective = "deploy the app".to_string();
+        i.constraints = vec!["do not restart the database".to_string()];
+        let out = optimize(&i, OptimizationMode::Enhanced);
+        assert!(out.contains("do not restart the database"), "{out:?}");
     }
 
     #[test]
