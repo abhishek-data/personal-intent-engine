@@ -152,7 +152,7 @@ jobs:
       - name: Verify macOS signing identity is the pinned cert
         if: matrix.platform == 'macos-14'
         env:
-          EXPECTED_LEAF_SHA1: d318e19eaf8d165d5d5e16cd7d1817e7d8d4d854
+          EXPECTED_LEAF_SHA1: 6d08147f0c41e43d33e7ce7839273cb170b312d1
         run: |
           set -euo pipefail
           APP="$(find target/release/bundle/macos -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -1)"

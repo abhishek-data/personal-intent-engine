@@ -13,7 +13,7 @@ and **Microphone** permission. macOS stores those grants in TCC, keyed to the
 app's code-signing **Designated Requirement**:
 
 ```
-identifier "com.pie.desktop" and certificate leaf = H"d318e19eaf8d165d5d5e16cd7d1817e7d8d4d854"
+identifier "com.pie.desktop" and certificate leaf = H"6d08147f0c41e43d33e7ce7839273cb170b312d1"
 ```
 
 That `certificate leaf` hash is the SHA-1 of the signing certificate. As long as
@@ -37,8 +37,8 @@ tccutil reset Microphone    com.pie.desktop
 | Field       | Value                                                       |
 |-------------|-------------------------------------------------------------|
 | Common name | `PIE Developers` (self-signed; `TeamIdentifier=not set`)    |
-| Leaf SHA-1  | `d318e19eaf8d165d5d5e16cd7d1817e7d8d4d854`                   |
-| Valid       | 2026-07-20 → 2036-07-17                                      |
+| Leaf SHA-1  | `6d08147f0c41e43d33e7ce7839273cb170b312d1`                   |
+| Valid       | 2026-07-18 → 2036-07-15                                      |
 
 The cert (as a base64 `.p12`) and its password live in the repo's GitHub Actions
 secrets, `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD`. The
@@ -48,6 +48,26 @@ them into a temporary keychain and signs with the `PIE Developers` identity.
 **Do not regenerate this `.p12` to "refresh" it.** A regenerated cert = a new
 leaf hash = a broken grant for every existing user. Keep a secure backup of the
 `.p12` and password outside GitHub so the identity is never lost.
+
+### Identity change, 2026-08-11 (one time)
+
+Pre-0.3.0 builds were signed with a different leaf
+(`d318e19eaf8d165d5d5e16cd7d1817e7d8d4d854`) whose private key existed **only**
+inside GitHub Actions secrets — unreadable by design, and lost with the
+repository. From 0.3.0 the project standardises on the identity above, whose
+`.p12`, key, and password are held outside GitHub and can therefore be backed
+up and restored.
+
+This was a deliberate, one-time change. Anyone who installed a pre-0.3.0 build
+must re-grant Accessibility and Microphone once:
+
+```bash
+tccutil reset Accessibility com.pie.desktop
+tccutil reset Microphone    com.pie.desktop
+```
+
+Do not treat this entry as licence to change the cert again — the whole point
+of pinning is that it never moves.
 
 ## The CI guard
 
