@@ -190,6 +190,33 @@ The app is a tray app. Closing the window hides it rather than quitting, and
 the activation policy, which can order the main window out on launch — reopen it
 from the menu-bar icon.
 
+### Installing a local build (`scripts/dev-install.sh`)
+
+Use the script, not a bare `cargo tauri build` + drag to /Applications:
+
+```bash
+./scripts/dev-install.sh
+```
+
+A locally built bundle is **ad-hoc** signed, and an ad-hoc signature's
+designated requirement is the binary's own content hash:
+
+```
+designated => cdhash H"d1aa8f2e..."
+```
+
+macOS TCC keys the Accessibility grant on that requirement, so every rebuild
+looks like a different application and the grant stops matching — the "PIE
+would like to control this computer" prompt returns after every install and
+paste never starts working. The script re-signs with an identifier-only
+requirement (`designated => identifier "com.pie.desktop"`) so the grant
+survives rebuilds. Clear the stale hash-based grants once with
+`tccutil reset Accessibility com.pie.desktop`, then grant when asked.
+
+This affects local builds only. Releases are signed in CI with the stable
+`PIE Developers` cert (see [signing.md](signing.md)); nothing here touches that
+identity.
+
 ## Commit Convention
 
 ```
