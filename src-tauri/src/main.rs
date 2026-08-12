@@ -1192,8 +1192,19 @@ fn main() {
             let menu = MenuBuilder::new(app)
                 .items(&[&show_item, &quit_item])
                 .build()?;
+            // The menu bar wants a monochrome template image that macOS tints
+            // for the current theme — the full-colour app icon shrunk to 18pt
+            // reads as a muddy sticker and ignores light/dark. Other platforms
+            // keep the colour icon, since a black-only glyph would disappear
+            // against a dark Windows taskbar.
+            #[cfg(target_os = "macos")]
+            let tray_icon = tauri::include_image!("icons/tray-template.png");
+            #[cfg(not(target_os = "macos"))]
+            let tray_icon = tauri::include_image!("icons/32x32.png");
+
             TrayIconBuilder::with_id("main-tray")
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tray_icon)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("PIE — Personal Intent Engine")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
