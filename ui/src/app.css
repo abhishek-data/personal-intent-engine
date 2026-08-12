@@ -305,19 +305,65 @@ html, body {
 .record-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .record-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: var(--s4); }
 
+/* The hotkey is how PIE is actually used, so it is the largest thing in the
+   bar; the record button is the fallback and sits at the edge. */
 .record-bar {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: var(--s4);
-  padding-top: var(--s4);
+  padding-top: var(--s5);
   border-top: 1px solid var(--rule);
 }
 
-/* The one round thing. */
+/* Idle */
+.bar-keys {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+.keys-hero { gap: 6px; }
+.keys-hero kbd {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 11px;
+  font-size: 14px;
+}
+.bar-caption { font-size: 11px; color: var(--bone-3); }
+.bar-caption a, .bar-caption .text-btn { vertical-align: baseline; }
+
+/* Recording and transcribing */
+.bar-live {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+}
+.bar-elapsed {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--bone);
+  flex-shrink: 0;
+}
+.bar-live .live-rule { flex: 1 1 auto; min-width: 32px; }
+.bar-state {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--bone-2);
+  flex-shrink: 0;
+}
+
+/* The one round thing. Demoted to a corner control: the hotkey leads. */
 .record-btn {
-  width: 60px;
-  height: 60px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   border-radius: 50%;
   border: 1px solid var(--rule-strong);
@@ -332,8 +378,8 @@ html, body {
 /* Dot to square on transform rather than width/height, so the morph never
    touches layout. */
 .record-mark {
-  width: 18px;
-  height: 18px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   background: var(--proof);
   transition: transform var(--t-state) var(--ease),
@@ -344,15 +390,9 @@ html, body {
 .record-btn.recording .record-mark { transform: scale(0.84); border-radius: 0; }
 .record-btn.decoding .record-mark { background: var(--bone-4); border-radius: 50%; }
 
-.record-status { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.record-state {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--bone);
-}
-/* Liveness is a rule that advances, not a blink. Ink, not a screen tell. */
+/* Liveness is a rule that advances, not a blink. Ink, not a screen tell.
+   It exists only while something is happening — an empty track sitting under
+   an idle bar reads as a stray divider, not as an instrument. */
 .live-rule { height: 2px; background: var(--rule); overflow: hidden; position: relative; }
 .live-rule::after {
   content: "";
@@ -372,7 +412,6 @@ html, body {
    like an ink stroke. Falls back to the sweep when no level arrives. */
 .record-bar.has-level .live-rule::after { animation: none; transform: scaleX(var(--level, 0)); transition: transform 90ms linear; }
 
-.record-hint { font-size: 11px; color: var(--bone-3); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 
 /* ─────────────────────────────────────────────────────────────
    ACTIONS

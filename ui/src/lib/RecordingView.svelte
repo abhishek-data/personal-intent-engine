@@ -24,6 +24,26 @@
   let saved = $state({});
   $effect(() => { outcome; saved = {}; });
 
+  // Elapsed time while capturing. Purely a frontend clock — the recorder
+  // reports state and level, not duration, and a wall clock is accurate
+  // enough for a readout that only has to feel live.
+  let startedAt = $state(0);
+  let nowMs = $state(0);
+  $effect(() => {
+    if (recState !== "recording") return;
+    startedAt = Date.now();
+    nowMs = startedAt;
+    const t = setInterval(() => { nowMs = Date.now(); }, 100);
+    return () => clearInterval(t);
+  });
+
+  function clock(ms) {
+    const s = Math.max(0, ms) / 1000;
+    const m = Math.floor(s / 60);
+    return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`;
+  }
+  const elapsed = $derived(clock(nowMs - startedAt));
+
   async function saveFix(f) {
     try {
       await invoke("add_correction", { heard: f.from, canonical: f.to });
@@ -149,6 +169,28 @@
     class:has-level={hasLevel && recState === "recording"}
     style="--level:{level}"
   >
+    {#if recState === "idle"}
+      <div class="bar-keys">
+        {#if caps.length}
+          <span class="keys keys-hero">{#each caps as cap}<kbd>{cap}</kbd>{/each}</span>
+          <span class="bar-caption">press anywhere</span>
+        {:else}
+          <span class="bar-caption">No hotkey set — add one in Setup.</span>
+        {/if}
+      </div>
+    {:else}
+      <div class="bar-live">
+        {#if recState === "recording"}
+          <span class="bar-elapsed">{elapsed}</span>
+          <div class="live-rule"></div>
+          <button class="text-btn" onclick={onCancel} aria-label="Cancel recording">Cancel</button>
+        {:else}
+          <span class="bar-state">{stateLabel}</span>
+          <div class="live-rule"></div>
+        {/if}
+      </div>
+    {/if}
+
     <button
       class="record-btn {recState}"
       onclick={onToggle}
@@ -157,19 +199,5 @@
     >
       <span class="record-mark"></span>
     </button>
-
-    <div class="record-status">
-      <span class="record-state">{stateLabel}</span>
-      <div class="live-rule"></div>
-      <p class="record-hint">
-        {#if recState === "recording"}
-          <button class="text-btn" onclick={onCancel} aria-label="Cancel recording">Cancel</button>
-        {:else if caps.length}
-          <span>or press</span>
-          <span class="keys">{#each caps as cap}<kbd>{cap}</kbd>{/each}</span>
-          <span>in any app</span>
-        {/if}
-      </p>
-    </div>
   </div>
 </div>
