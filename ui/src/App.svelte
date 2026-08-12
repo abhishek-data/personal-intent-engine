@@ -147,13 +147,12 @@
   // The lexicon is a third of what PIE is, so it is a section of the book
   // rather than the sixth pane of a settings scroll.
   const TABS = [
-    { id: "record",  label: "Record",  head: "Record" },
-    { id: "history", label: "History", head: "History" },
-    { id: "lexicon", label: "Lexicon", head: "Lexicon" },
-    { id: "models",  label: "Models",  head: "Models" },
-    { id: "setup",   label: "Setup",   head: "Setup" },
+    { id: "record",  label: "Record" },
+    { id: "history", label: "History" },
+    { id: "lexicon", label: "Lexicon" },
+    { id: "models",  label: "Models" },
+    { id: "setup",   label: "Setup" },
   ];
-  const head = $derived(TABS.find((t) => t.id === view)?.head ?? "PIE");
 
   onMount(() => {
     let unlisteners = [];
@@ -206,9 +205,9 @@
   onkeydown={(e) => { if (e.key === "Escape" && recState === "recording") cancelRecording(); }}
 />
 
-<!-- Running head + thumb index: the page furniture of a reference book. -->
+<!-- Thumb index. It already names the active section, so there is no running
+     head repeating it. -->
 <header class="head" class:is-mac={isMac} class:is-win={isWin}>
-  <h1 class="head-title">{head}</h1>
   {#if saved}
     <span class="saved-tag">Saved</span>
   {/if}

@@ -56,10 +56,10 @@ html, body {
 .head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--s4);
   height: var(--head-h);
-  padding: 0 var(--s5);
+  padding: 0 var(--s6);
   border-bottom: 1px solid var(--rule);
   background: var(--ink);
   -webkit-app-region: drag;
@@ -70,17 +70,8 @@ html, body {
 .head.is-mac    { padding-left: 78px; }
 .head.is-win    { padding-right: 140px; }
 
-.head-title {
-  font-family: var(--serif);
-  font-weight: 300;
-  font-size: 21px;
-  line-height: 1;
-  color: var(--bone);
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* No running head: the thumb index already names the active section, and
+   repeating it beside the tabs was pure redundancy. */
 
 .thumbs {
   display: flex;
@@ -113,7 +104,7 @@ html, body {
   height: calc(100vh - var(--head-h));
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--s5);
+  padding: var(--s6);
 }
 .page > * { max-width: var(--measure); margin-inline: auto; }
 .page > .record-view { height: 100%; }
@@ -801,6 +792,7 @@ kbd {
 .error-x:hover { color: var(--bone); }
 
 .saved-tag {
+  margin-right: auto;   /* sits where the running head used to, thumbs stay right */
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.11em;
@@ -838,15 +830,15 @@ kbd {
 /* ─────────────────────────────────────────────────────────────
    NARROW WINDOW (min is 460×560)
    ───────────────────────────────────────────────────────────── */
-@media (max-width: 540px) {
-  .page { padding: var(--s4); }
-  .head { padding-inline: var(--s4); }
-  .head.is-mac { padding-left: 78px; }
-  .head-title { font-size: 18px; }
+/* The default window is exactly 540px wide, so the compact rules have to start
+   BELOW it — a `max-width: 540px` breakpoint shipped the app at its tightest
+   spacing at its own default size. */
+@media (max-width: 500px) {
+  .page { padding: var(--s5); }
+  .head { padding-inline: var(--s5); }
   .thumbs { gap: var(--s3); }
   .row { flex-direction: column; gap: var(--s5); }
 }
-@media (max-width: 470px) {
-  .head-title { display: none; }
-  .thumbs { width: 100%; justify-content: space-between; }
+@media (max-width: 460px) {
+  .thumbs { gap: var(--s2); }
 }
