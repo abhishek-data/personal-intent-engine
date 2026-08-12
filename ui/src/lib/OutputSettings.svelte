@@ -4,11 +4,17 @@
   let { settings, onSave } = $props();
 </script>
 
-<section class="group">
+<section class="leaf">
+  <div class="leaf-head">
+    <span class="leaf-label">Output</span>
+    <span class="leaf-rule"></span>
+  </div>
+
   <div class="field">
     <span class="field-label">Record-window default</span>
-    <div class="segmented">
+    <div class="options">
       <button
+        class="option"
         class:active={settings.paste_output === "transcript"}
         aria-pressed={settings.paste_output === "transcript"}
         onclick={() => {
@@ -17,6 +23,7 @@
         }}>Transcript</button
       >
       <button
+        class="option"
         class:active={settings.paste_output === "prompt"}
         aria-pressed={settings.paste_output === "prompt"}
         onclick={() => {
@@ -25,7 +32,7 @@
         }}>Optimized prompt</button
       >
     </div>
-    <p class="caption">
+    <p class="note">
       Default output mode for recordings started from this window (long prompts
       are only refined for “Optimized prompt”). The two global hotkeys have their
       own fixed outputs — raw vs optimized — and ignore this.

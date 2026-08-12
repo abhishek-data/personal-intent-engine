@@ -5,6 +5,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
+  import Icon from "./Icon.svelte";
 
   let { settings, onSave, onError } = $props();
 
@@ -99,9 +100,14 @@
   });
 </script>
 
-<section class="group">
-  <span class="field-label">Sync Your Vocabulary</span>
-  <p class="caption">
+<section class="leaf">
+  <div class="leaf-head">
+    <span class="leaf-label">Sync Your Vocabulary</span>
+    <span class="leaf-rule"></span>
+    <span class="leaf-meta">last: {lastSyncedLabel}</span>
+  </div>
+
+  <p class="note">
     All processing happens locally. Text is only sent to the LLM you've
     configured, to extract vocabulary terms from your past conversations.
   </p>
@@ -109,44 +115,48 @@
   <div class="field">
     <span class="field-label">Auto-detected sources</span>
     {#if sources.length}
-      <ul class="correction-list">
+      <ul class="list">
         {#each sources as s (s.path)}
           <li>
-            <span class="mono">✓ {s.name}</span>
-            <button
-              class="text-btn"
-              onclick={() => addPath(s.path)}
-              aria-label={`Add ${s.name}`}
-            >Add</button>
+            <span class="row-main"><span class="row-name">{s.name}</span></span>
+            <span class="row-actions">
+              <button
+                class="text-btn"
+                onclick={() => addPath(s.path)}
+                aria-label={`Add ${s.name}`}
+              >Add</button>
+            </span>
           </li>
         {/each}
       </ul>
     {:else}
-      <p class="caption">No sources auto-detected on this machine.</p>
+      <p class="note">No sources auto-detected on this machine.</p>
     {/if}
   </div>
 
   <div class="field">
     <span class="field-label">Sources to sync</span>
-    <div class="correction-add">
-      <button class="btn sm" onclick={chooseFolder}>Choose folder…</button>
-      <button class="btn sm" onclick={chooseFile}>Choose file…</button>
+    <div class="actions">
+      <button class="btn ghost sm" onclick={chooseFolder}>Choose folder…</button>
+      <button class="btn ghost sm" onclick={chooseFile}>Choose file…</button>
     </div>
     {#if paths.length}
-      <ul class="correction-list">
+      <ul class="list">
         {#each paths as p (p)}
           <li>
-            <span class="mono">{p}</span>
-            <button
-              class="text-btn"
-              onclick={() => removePath(p)}
-              aria-label={`Remove ${p}`}
-            >✕</button>
+            <span class="row-main"><span class="row-desc">{p}</span></span>
+            <span class="row-actions">
+              <button
+                class="btn ghost sm icon"
+                onclick={() => removePath(p)}
+                aria-label={`Remove ${p}`}
+              ><Icon name="close" size={12} /></button>
+            </span>
           </li>
         {/each}
       </ul>
     {:else}
-      <p class="caption">
+      <p class="note">
         No sources chosen yet. Pick a folder of exported conversations (or an
         export file, e.g. ChatGPT/Claude `conversations.json`).
       </p>
@@ -154,34 +164,32 @@
   </div>
 
   <div class="field">
-    <button
-      class="btn sm"
-      disabled={paths.length === 0 || syncing}
-      onclick={syncNow}
-    >{syncing ? "Syncing…" : "Sync Now"}</button>
+    <div class="actions">
+      <button
+        class="btn sm"
+        disabled={paths.length === 0 || syncing}
+        onclick={syncNow}
+      >{syncing ? "Syncing…" : "Sync Now"}</button>
+    </div>
 
     {#if syncing}
-      <div
-        class="progress"
-        style="width:100%; margin-top:var(--space-2)"
-        title="{progressPct}%"
-      >
-        <div class="progress-bar" style="width:{progressPct}%"></div>
+      <div class="progress wide" style="margin-top:var(--s3)" title="{progressPct}%">
+        <div class="progress-bar" style="--fill:{progressPct / 100}"></div>
       </div>
-      <p class="caption">{progress.done} / {progress.total} conversations processed</p>
+      <p class="note">{progress.done} / {progress.total} conversations processed</p>
     {/if}
 
     {#if result}
-      <p class="caption">
+      <p class="note">
         Imported {result.terms_added} terms from {result.conversations} conversations.
       </p>
       {#if result.batches_failed > 0}
-        <p class="caption">
-          ⚠ {result.batches_failed} of {result.batches_total} batches failed (check your LLM settings)
+        <p class="note is-proof">
+          {result.batches_failed} of {result.batches_total} batches failed (check your LLM settings)
         </p>
       {/if}
     {/if}
 
-    <p class="caption">Last synced: {lastSyncedLabel}</p>
+    <p class="note">Last synced: {lastSyncedLabel}</p>
   </div>
 </section>

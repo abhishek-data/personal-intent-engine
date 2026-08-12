@@ -5,7 +5,12 @@
   const MODES = ["auto", "direct", "enhanced"];
 </script>
 
-<section class="group">
+<section class="leaf">
+  <div class="leaf-head">
+    <span class="leaf-label">Transcription</span>
+    <span class="leaf-rule"></span>
+  </div>
+
   <div class="field">
     <label for="language">Spoken language</label>
     <input
@@ -14,16 +19,18 @@
       onblur={onSave}
       placeholder="auto"
     />
-    <p class="caption">
+    <p class="note">
       ISO code like <code>en</code>, <code>de</code>, <code>es</code> — or
       <code>auto</code> to detect.
     </p>
   </div>
+
   <div class="field">
     <span class="field-label">Optimization</span>
-    <div class="segmented">
+    <div class="options">
       {#each MODES as m}
         <button
+          class="option"
           class:active={settings.mode === m}
           aria-pressed={settings.mode === m}
           onclick={() => {
@@ -33,7 +40,7 @@
         >
       {/each}
     </div>
-    <p class="caption">
+    <p class="note">
       How speech becomes a prompt: direct passes short commands straight
       through, enhanced uses your LLM to extract intent from long or rambling
       dictation, auto picks per input.

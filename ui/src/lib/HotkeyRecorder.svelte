@@ -15,6 +15,9 @@
     field = "hotkey_optimized",
     label = "Global hotkey",
     defaultValue = "CmdOrCtrl+Shift+Space",
+    // Both recorders share the same explanation; showing it twice in a row
+    // is noise, so the second instance suppresses it.
+    showNote = true,
   } = $props();
 
   let capturingHotkey = $state(false);
@@ -79,33 +82,38 @@
 
 <svelte:window onkeydown={onHotkeyCapture} />
 
-<section class="group">
+<section class="leaf">
+  <div class="leaf-head">
+    <span class="leaf-label">{label}</span>
+    <span class="leaf-rule"></span>
+  </div>
+
   <div class="field">
-    <span class="field-label">{label}</span>
     <div class="hotkey-row">
       <div class="hotkey-display" class:capturing={capturingHotkey}>
         {#if capturingHotkey}
           <span class="capture-hint">Press a combo…</span>
         {:else if settings[field]}
-          {#each keycaps(settings[field]) as cap}
-            <kbd>{cap}</kbd>
-          {/each}
+          <span class="keys">
+            {#each keycaps(settings[field]) as cap}<kbd>{cap}</kbd>{/each}
+          </span>
         {:else}
-          <span class="muted">Disabled</span>
+          <span class="hotkey-off">Disabled</span>
         {/if}
       </div>
       {#if capturingHotkey}
-        <button class="btn ghost" onclick={() => endCapture(null)} aria-label="Cancel capturing hotkey">
+        <button class="btn ghost sm" onclick={() => endCapture(null)} aria-label="Cancel capturing hotkey">
           Cancel
         </button>
       {:else}
-        <button class="btn" onclick={beginCaptureHotkey} aria-label="Change global hotkey">
+        <button class="btn sm" onclick={beginCaptureHotkey} aria-label="Change global hotkey">
           Change
         </button>
       {/if}
     </div>
+
     {#if capturingHotkey}
-      <p class="caption">
+      <p class="note">
         Press the keys you want, e.g. <kbd>⌘</kbd><kbd>⇧</kbd>Space.
         <kbd>Esc</kbd> cancels.
       </p>
@@ -114,10 +122,12 @@
         <button class="text-btn" onclick={resetHotkey}>Reset to default</button>
         <button class="text-btn" onclick={disableHotkey}>Disable</button>
       </div>
-      <p class="caption">
-        Press it in any app to start recording; press again to stop and paste.
-        First use needs Accessibility permission on macOS.
-      </p>
+      {#if showNote}
+        <p class="note">
+          Press it in any app to start recording; press again to stop and paste.
+          First use needs Accessibility permission on macOS.
+        </p>
+      {/if}
     {/if}
   </div>
 </section>

@@ -1,0 +1,50 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   PIE design tokens — "The Personal Lexicon"
+
+   Imported by BOTH surfaces: the main window (app.css) and the floating
+   overlay (Overlay.svelte). The two are one product and must be able to
+   prove it; before this file they shared no values at all.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@import "./fonts/fonts.css";
+
+:root {
+  color-scheme: dark;
+
+  /* ─ Ground: warm ink, not blue-black ─ */
+  --ink:        #0F0E0C;
+  --ink-2:      #16130F;   /* wells: mono blocks, keycaps */
+  --ink-3:      #1D1915;   /* pressed / hovered rows */
+
+  /* ─ Rules ─ */
+  --rule:        #2E2A26;
+  --rule-strong: #4A433B;
+
+  /* ─ Ink on the stock. All text values meet 4.5:1 on --ink. ─ */
+  --bone:   #EDE7DC;  /* 16.0:1  primary */
+  --bone-2: #B8AE9C;  /*  9.0:1  secondary, labels */
+  --bone-3: #8B8172;  /*  5.2:1  captions, times, placeholders */
+  --bone-4: #6E6558;  /*  3.4:1  DISABLED AND NON-TEXT ONLY — never body copy */
+
+  /* ─ The mark ─ */
+  --proof:      #E04A30;  /* 4.8:1 — safe for small text */
+  --proof-deep: #B8351E;
+
+  /* ─ Type ─ */
+  --serif: "Spectral", "Iowan Old Style", Georgia, serif;
+  --sans:  "Libre Franklin", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono:  "Spline Sans Mono", ui-monospace, "SF Mono", "Cascadia Code", monospace;
+
+  /* ─ Space: 4px base ─ */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 32px; --s7: 48px;
+
+  /* ─ Motion: ink, not screen. Nothing bounces, nothing glows. ─ */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --t-mark: 180ms;  /* the red stroke striking in */
+  --t-set:  120ms;  /* type setting into place */
+  --t-state: 110ms;
+
+  --head-h: 46px;
+  --measure: 620px;
+}

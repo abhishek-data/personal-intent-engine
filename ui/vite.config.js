@@ -16,6 +16,10 @@ export default defineConfig({
   build: {
     target: "safari15",
     outDir: "dist",
+    // Never inline assets as data: URIs. The app's CSP is `default-src 'self'`
+    // with no font-src, so a data: font is blocked outright — Vite's default
+    // 4KB inline threshold silently swallowed four small woff2 subsets.
+    assetsInlineLimit: 0,
     rollupOptions: {
       input: {
         main: resolve(import.meta.dirname, "index.html"),

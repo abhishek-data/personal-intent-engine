@@ -3,6 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
 
+  import Icon from "./lib/Icon.svelte";
   import RecordingView from "./lib/RecordingView.svelte";
   import ModelManager from "./lib/ModelManager.svelte";
   import TranscriptionSettings from "./lib/TranscriptionSettings.svelte";
@@ -21,6 +22,8 @@
   let outcome = $state(null);
   let llmResponse = $state("");
   let llmBusy = $state(false);
+  let level = $state(0);
+  let hasLevel = $state(false);
 
   let settings = $state({
     whisper_model: "",
@@ -43,6 +46,13 @@
 
   let models = $state([]);
   let downloads = $state({});
+
+  // The window chrome sits on the left on macOS and the right on Windows.
+  // Reserving space per platform instead of globally means neither one
+  // carries the other's dead space.
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  const isMac = ua.includes("Macintosh") || ua.includes("Mac OS");
+  const isWin = ua.includes("Windows");
 
   async function loadModels() {
     try { models = await invoke("list_models"); }
@@ -131,15 +141,19 @@
   }
 
   const stateLabel = $derived(
-    { idle: "Ready", recording: "Recording…", decoding: "Transcribing…" }[recState] ?? recState
+    { idle: "Ready", recording: "Recording", decoding: "Transcribing…" }[recState] ?? recState
   );
 
+  // The lexicon is a third of what PIE is, so it is a section of the book
+  // rather than the sixth pane of a settings scroll.
   const TABS = [
-    { id: "record", label: "Record" },
-    { id: "history", label: "History" },
-    { id: "models", label: "Models" },
-    { id: "settings", label: "Settings" },
+    { id: "record",  label: "Record",  head: "Record" },
+    { id: "history", label: "History", head: "History" },
+    { id: "lexicon", label: "Lexicon", head: "Lexicon" },
+    { id: "models",  label: "Models",  head: "Models" },
+    { id: "setup",   label: "Setup",   head: "Setup" },
   ];
+  const head = $derived(TABS.find((t) => t.id === view)?.head ?? "PIE");
 
   onMount(() => {
     let unlisteners = [];
@@ -164,7 +178,14 @@
           }
         }),
         listen("pie://models-changed", () => loadModels()),
-        listen("pie://state", (event) => { recState = event.payload; }),
+        listen("pie://state", (event) => {
+          recState = event.payload;
+          if (recState !== "recording") level = 0;
+        }),
+        listen("pie://level", (event) => {
+          hasLevel = true;
+          level = Math.max(0, Math.min(1, Number(event.payload) || 0));
+        }),
         listen("pie://outcome", (event) => { outcome = event.payload; }),
         listen("pie://error", (event) => { error = event.payload; }),
       ]);
@@ -176,6 +197,7 @@
     return () => {
       disposed = true;
       unlisteners.forEach((u) => u());
+      clearTimeout(savedTimer);
     };
   });
 </script>
@@ -184,25 +206,32 @@
   onkeydown={(e) => { if (e.key === "Escape" && recState === "recording") cancelRecording(); }}
 />
 
-<div class="topbar">
+<!-- Running head + thumb index: the page furniture of a reference book. -->
+<header class="head" class:is-mac={isMac} class:is-win={isWin}>
+  <h1 class="head-title">{head}</h1>
   {#if saved}
-    <span class="saved-tag">Saved ✓</span>
+    <span class="saved-tag">Saved</span>
   {/if}
-  <nav>
+  <nav class="thumbs" aria-label="Sections">
     {#each TABS as tab}
       <button
+        class="thumb"
         class:active={view === tab.id}
+        aria-current={view === tab.id ? "page" : undefined}
         onclick={() => { view = tab.id; error = ""; }}
       >{tab.label}</button>
     {/each}
   </nav>
-</div>
+</header>
 
-<div class="content">
+<main class="page">
   {#if error}
-    <div class="error-banner">
-      <span>{error}</span>
-      <button onclick={() => { error = ""; }} aria-label="Dismiss error">×</button>
+    <div class="error" role="alert">
+      <span class="error-label">Error</span>
+      <span class="error-text">{error}</span>
+      <button class="error-x" onclick={() => { error = ""; }} aria-label="Dismiss error">
+        <Icon name="close" size={13} />
+      </button>
     </div>
   {/if}
 
@@ -212,6 +241,8 @@
       {outcome}
       {llmResponse}
       {llmBusy}
+      {level}
+      {hasLevel}
       hotkey={settings.hotkey_optimized}
       {stateLabel}
       onToggle={toggleRecording}
@@ -221,6 +252,11 @@
       {onRecorrect}
       onError={(e) => { error = e; }}
     />
+  {:else if view === "history"}
+    <HistoryView />
+  {:else if view === "lexicon"}
+    <VocabularySettings {settings} onSave={save} onError={(e) => { error = e; }} />
+    <VocabularySync {settings} onSave={save} onError={(e) => { error = e; }} />
   {:else if view === "models"}
     <ModelManager
       {models}
@@ -232,18 +268,17 @@
       onSave={save}
       onReloadModels={loadModels}
     />
-  {:else if view === "history"}
-    <HistoryView />
-  {:else if view === "settings"}
+  {:else if view === "setup"}
+    <!-- The two global hotkeys are the product, so they open the section
+         rather than sitting fifth in a flat list. -->
+    <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }}
+      field="hotkey_optimized" label="Optimized paste hotkey" defaultValue="CmdOrCtrl+Shift+Space" />
+    <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }}
+      field="hotkey_raw" label="Raw paste hotkey" defaultValue="CmdOrCtrl+Shift+V"
+      showNote={false} />
     <TranscriptionSettings {settings} onSave={save} />
     <LLMSettings {settings} onSave={save} />
     <OutputSettings {settings} onSave={save} />
-    <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }}
-      field="hotkey_raw" label="Raw paste hotkey" defaultValue="CmdOrCtrl+Shift+V" />
-    <HotkeyRecorder {settings} onSave={save} onError={(e) => { error = e; }}
-      field="hotkey_optimized" label="Optimized paste hotkey" defaultValue="CmdOrCtrl+Shift+Space" />
-    <VocabularySettings {settings} onSave={save} onError={(e) => { error = e; }} />
-    <VocabularySync {settings} onSave={save} onError={(e) => { error = e; }} />
     <HistorySettings {settings} onSave={save} />
   {/if}
-</div>
+</main>

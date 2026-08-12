@@ -22,6 +22,20 @@ OpenSuperWhisper: the recording indicator behaviour and the clipboard paste
 flow.
 
 --------------------------------------------------------------------------
+Bundled typefaces (ui/src/fonts/)
+
+This product bundles three typefaces, each licensed under the SIL Open Font
+License, Version 1.1. The full licence text is included at
+ui/src/fonts/OFL.txt.
+
+  Spectral          — Copyright (c) Production Type
+  Libre Franklin    — Copyright (c) Impallari Type
+  Spline Sans Mono  — Copyright (c) Sorkin Type and Mirko Velimirovic
+
+The fonts are vendored rather than fetched at runtime because the
+application's Content-Security-Policy forbids remote font origins.
+
+--------------------------------------------------------------------------
 
 MIT License (applies to the derived portions noted above)
 

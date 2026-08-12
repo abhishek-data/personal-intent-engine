@@ -1,4 +1,6 @@
 <script>
+  // Past recordings, read as a concordance: what you said, when, and the
+  // operations available on each entry.
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
@@ -68,36 +70,50 @@
   });
 </script>
 
-<div class="history">
+<div class="field search">
+  <label for="hist-search" class="field-label">Search</label>
   <input
-    class="history-search"
+    id="hist-search"
+    class="text-input"
     placeholder="Search transcripts…"
     bind:value={query}
     oninput={onSearch}
   />
-
-  {#if error}
-    <p class="caption" style="color:var(--danger)">{error}</p>
-  {/if}
-
-  {#if entries.length === 0}
-    <p class="history-empty">No recordings yet. Press your hotkey or record to start.</p>
-  {:else}
-    <ul class="history-list">
-      {#each entries as e (e.id)}
-        <li class="history-item">
-          <div class="history-text">{e.transcript}</div>
-          <div class="history-meta">
-            <span class="history-time">{relTime(e.created_at)}</span>
-            <div class="history-actions">
-              <button class="text-btn" onclick={() => copy(e.transcript)}>Copy</button>
-              <button class="text-btn" onclick={() => paste(e.id)}>Paste</button>
-              <button class="text-btn danger" onclick={() => remove(e.id)}>Delete</button>
-            </div>
-          </div>
-        </li>
-      {/each}
-    </ul>
-    <button class="text-btn danger history-clear" onclick={clearAll}>Clear all</button>
-  {/if}
 </div>
+
+{#if error}
+  <p class="note is-proof">{error}</p>
+{/if}
+
+{#if entries.length === 0}
+  <div class="empty">
+    <p class="empty-lead">No recordings yet.</p>
+    <p class="note">Press your hotkey or record to start.</p>
+  </div>
+{:else}
+  <section class="leaf">
+    <div class="leaf-head">
+      <span class="leaf-label">Recordings</span>
+      <span class="leaf-rule"></span>
+      <span class="leaf-meta">{entries.length}</span>
+    </div>
+
+    {#each entries as e (e.id)}
+      <article class="hist-item">
+        <p class="hist-text">{e.transcript}</p>
+        <div class="hist-meta">
+          <span class="hist-time">{relTime(e.created_at)}</span>
+          <div class="hist-actions">
+            <button class="text-btn" onclick={() => copy(e.transcript)}>Copy</button>
+            <button class="text-btn" onclick={() => paste(e.id)}>Paste</button>
+            <button class="text-btn danger" onclick={() => remove(e.id)}>Delete</button>
+          </div>
+        </div>
+      </article>
+    {/each}
+
+    <div class="actions">
+      <button class="btn danger sm" onclick={clearAll}>Clear all</button>
+    </div>
+  </section>
+{/if}

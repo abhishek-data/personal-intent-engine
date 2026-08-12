@@ -29,17 +29,22 @@
         model: settings.llm_model,
       });
       testOk = true;
-      testResult = "✓ Connected";
+      testResult = "Connected";
     } catch (e) {
       testOk = false;
-      testResult = "✗ " + e;
+      testResult = String(e);
     } finally {
       testing = false;
     }
   }
 </script>
 
-<section class="group">
+<section class="leaf">
+  <div class="leaf-head">
+    <span class="leaf-label">LLM provider</span>
+    <span class="leaf-rule"></span>
+  </div>
+
   <div class="field">
     <label for="provider">LLM provider</label>
     <select id="provider" bind:value={settings.provider} onchange={onSave}>
@@ -48,6 +53,7 @@
       <option value="openrouter">OpenRouter</option>
     </select>
   </div>
+
   <div class="field">
     <label for="llm-url">API URL</label>
     <input
@@ -57,6 +63,7 @@
       placeholder="https://api.openai.com/v1"
     />
   </div>
+
   <div class="field">
     <label for="llm-key">API key</label>
     <input
@@ -67,6 +74,7 @@
       placeholder="sk-…"
     />
   </div>
+
   <div class="field">
     <label for="llm-provider-model">Model</label>
     <input
@@ -76,18 +84,17 @@
       placeholder="gpt-4o-mini"
     />
   </div>
+
   <div class="field">
-    <button class="btn sm" disabled={testing} onclick={testConnection}>
+    <button class="btn ghost sm" disabled={testing} onclick={testConnection}>
       {testing ? "Testing…" : "Test Connection"}
     </button>
     {#if testResult}
-      <p class="caption" style="color:var({testOk ? '--success' : '--danger'})">
-        {testResult}
-      </p>
+      <p class="note" class:is-proof={!testOk}>{testResult}</p>
     {/if}
+    <p class="note">
+      Endpoint, key, and model for “Send to LLM”. Leave blank to fall back to
+      environment variables (e.g. <code>OPENAI_API_KEY</code>).
+    </p>
   </div>
-  <p class="caption">
-    Endpoint, key, and model for “Send to LLM”. Leave blank to fall back to
-    environment variables (e.g. <code>OPENAI_API_KEY</code>).
-  </p>
 </section>
