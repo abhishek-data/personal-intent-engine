@@ -18,6 +18,7 @@ src-tauri/target/
 # Local agent/tool state
 .commandcode/
 .depwire/
+.impeccable/
 .pi/
 .serena/
 .superpowers/

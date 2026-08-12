@@ -162,6 +162,34 @@ cargo clippy                   # Lint
 cargo fmt                      # Format
 ```
 
+### Running the desktop app (read this before debugging a blank window)
+
+**Never build the desktop app with plain `cargo build` / `cargo build --release`.**
+Doing so produces a binary whose webview points at `devUrl`
+(`http://localhost:5173`). With no Vite server on that port the window opens
+**completely blank white**, which looks like a frontend crash but is not one.
+
+Only the Tauri CLI runs `beforeBuildCommand` and embeds `frontendDist`:
+
+```bash
+cargo tauri dev                # dev: starts Vite + the app together
+cargo tauri build --no-bundle  # real standalone binary, frontend embedded
+cargo tauri build              # full .app / .dmg bundle
+```
+
+Two consequences worth remembering:
+
+- `npm --prefix ui run build` on its own changes nothing about an already-built
+  binary. The frontend is embedded at Tauri-CLI build time, not read from disk.
+- To tell the two apart: start a Vite server on 5173, launch the app, and check
+  `lsof -nP -iTCP:5173 | grep ESTABLISHED`. A correctly built app makes **zero**
+  connections; a `cargo build` one connects and depends on the dev server.
+
+The app is a tray app. Closing the window hides it rather than quitting, and
+`Cmd-Q` while it is focused quits it. Creating the NSPanel overlay briefly flips
+the activation policy, which can order the main window out on launch — reopen it
+from the menu-bar icon.
+
 ## Commit Convention
 
 ```
