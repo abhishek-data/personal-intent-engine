@@ -125,7 +125,7 @@ fn do_start_recording(app: &AppHandle) -> Result<(), String> {
     // must NOT touch pending_paste_mode or it would clobber the hotkey's choice.
     let (mut recorder, vad_active) = {
         let mut vad_cache = state.vad_cache.lock().unwrap_or_else(|e| e.into_inner());
-        build_recorder(&settings, &mut vad_cache).map_err(|e| e.to_string())?
+        build_recorder(app, &settings, &mut vad_cache).map_err(|e| e.to_string())?
     };
     recorder.open(None).map_err(|e| e.to_string())?;
     recorder
@@ -1033,12 +1033,45 @@ fn warm_whisper(app: &AppHandle) {
 
 /// Recorder with Silero VAD when configured; VAD-free otherwise. The Silero
 /// session is loaded once and reused across recordings via `vad_cache`.
+/// Attach the capture-level feed the overlay and record bar draw with.
+///
+/// The recorder hands us raw device-rate mono chunks on its capture thread, so
+/// the callback stays cheap: one RMS pass, a perceptual curve, and an emit at
+/// most every 50 ms. The UI degrades to a timed sweep if these never arrive,
+/// so dropping frames here is harmless.
+fn with_level_feed(recorder: AudioRecorder, app: &AppHandle) -> AudioRecorder {
+    let app = app.clone();
+    let last = Mutex::new(std::time::Instant::now() - LEVEL_INTERVAL);
+    recorder.with_level_callback(move |chunk| {
+        if chunk.is_empty() {
+            return;
+        }
+        {
+            let mut last = last.lock().unwrap_or_else(|e| e.into_inner());
+            if last.elapsed() < LEVEL_INTERVAL {
+                return;
+            }
+            *last = std::time::Instant::now();
+        }
+        let sum: f32 = chunk.iter().map(|s| s * s).sum();
+        let rms = (sum / chunk.len() as f32).sqrt();
+        // Speech RMS lands around 0.01–0.15; the square root opens up the
+        // quiet end so normal talking moves the rule visibly.
+        let level = (rms.sqrt() * 3.0).clamp(0.0, 1.0);
+        emit_event(&app, "pie://level", level);
+    })
+}
+
+/// Minimum gap between `pie://level` emissions.
+const LEVEL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+
 fn build_recorder(
+    app: &AppHandle,
     settings: &Settings,
     vad_cache: &mut VadCache,
 ) -> anyhow::Result<(AudioRecorder, bool)> {
     if settings.silero_model.is_empty() {
-        return Ok((AudioRecorder::new()?, false));
+        return Ok((with_level_feed(AudioRecorder::new()?, app), false));
     }
     let model_path = Settings::expand(&settings.silero_model);
     let detector = vad_cache.get_or_build(&model_path, || {
@@ -1056,7 +1089,7 @@ fn build_recorder(
         VAD_HANGOVER_FRAMES,
         VAD_STREAM_HANGOVER_FRAMES,
     );
-    Ok((recorder, true))
+    Ok((with_level_feed(recorder, app), true))
 }
 
 fn main() {
