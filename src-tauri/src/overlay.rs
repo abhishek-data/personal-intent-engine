@@ -12,10 +12,12 @@ use tauri::{AppHandle, Manager};
 
 pub const OVERLAY_LABEL: &str = "overlay";
 
-// Logical size; kept in sync with the pill in Overlay.svelte (plus its 8px
+// Logical size; kept in sync with the slip in Overlay.svelte (plus its 6px
 // margin) so the transparent window hugs the visible content.
-const OVERLAY_WIDTH: f64 = 200.0;
-const OVERLAY_HEIGHT: f64 = 64.0;
+//
+// Height math: 6+6 margin, 1+1 border, 6+6 padding, 8 mark = 34.
+const OVERLAY_WIDTH: f64 = 132.0;
+const OVERLAY_HEIGHT: f64 = 34.0;
 /// Gap between the overlay and the bottom of the screen, in logical points.
 const BOTTOM_MARGIN: f64 = 90.0;
 

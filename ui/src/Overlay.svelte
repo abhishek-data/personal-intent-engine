@@ -6,10 +6,15 @@
   // from the same token file as the main window, so the two are recognisably
   // one product.
   //
-  // Liveness is carried by a rule that presses harder as you speak — an ink
-  // stroke, not a blinking light. When the recorder is feeding real levels
-  // (`pie://level`) the rule tracks your voice; without them it falls back to
-  // a slow sweep so the slip never looks frozen.
+  // It carries no words — at this size the mark and the meter say it faster
+  // than a label does. State stays double-signalled without text: a filled
+  // red square with a live meter while capturing, a muted dot with a hatched
+  // meter while transcribing. The label survives for assistive tech only.
+  //
+  // Liveness is a rule that presses harder as you speak — an ink stroke, not
+  // a blinking light. When the recorder is feeding real levels (`pie://level`)
+  // the rule tracks your voice; without them it falls back to a slow sweep so
+  // the slip never looks frozen.
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
 
@@ -47,12 +52,14 @@
   );
 </script>
 
-<div class="slip {state}" class:has-level={hasLevel && state === "recording"}>
-  <div class="line">
-    <span class="mark" aria-hidden="true"></span>
-    <span class="label">{label}</span>
-  </div>
-  <div class="meter" style="--level:{level}"></div>
+<div
+  class="slip {state}"
+  class:has-level={hasLevel && state === "recording"}
+  role="status"
+  aria-label={label}
+>
+  <span class="mark" aria-hidden="true"></span>
+  <span class="meter" style="--level:{level}" aria-hidden="true"></span>
 </div>
 
 <style>
@@ -65,41 +72,35 @@
   }
 
   .slip {
-    margin: 8px;
-    padding: 11px 14px 9px;
+    margin: 6px;
+    padding: 6px 10px;
     background: rgba(15, 14, 12, 0.97);
     border: 1px solid rgba(237, 231, 220, 0.22);
     border-radius: 0;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.6);
-    font-family: var(--sans);
-    color: var(--bone);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.6);
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: 9px;
   }
-
-  .line { display: flex; align-items: center; gap: 10px; }
 
   /* Same mark vocabulary as the record button in the main window:
      a filled square while capturing, a muted dot while transcribing. */
   .mark {
-    width: 9px;
-    height: 9px;
+    width: 8px;
+    height: 8px;
     flex-shrink: 0;
     background: var(--proof);
   }
   .decoding .mark { background: var(--bone-4); border-radius: 50%; }
 
-  .label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-
   /* The rule. Real level when the recorder feeds one; a sweep otherwise. */
-  .meter { height: 2px; background: var(--rule); position: relative; overflow: hidden; }
+  .meter {
+    flex: 1 1 auto;
+    height: 3px;
+    background: var(--rule);
+    position: relative;
+    overflow: hidden;
+  }
   .meter::after {
     content: "";
     position: absolute;
