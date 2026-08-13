@@ -78,6 +78,12 @@ jobs:
           security find-identity -v "$KEYCHAIN" || true
           echo "APPLE_SIGNING_IDENTITY=PIE Developers" >> "$GITHUB_ENV"
 
+      # Asset filenames carry the bare version (PIE_0.5.0_aarch64.dmg) while the
+      # tag carries the "v" — the download links below need both.
+      - name: Resolve version for download links
+        shell: bash
+        run: echo "PIE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
       # tauri-action installs the Tauri CLI, builds the frontend + app, bundles
       # the .dmg / .exe, and uploads them to a GitHub release. On macOS,
       # APPLE_SIGNING_IDENTITY (set by the import step above via $GITHUB_ENV —
@@ -96,7 +102,19 @@ jobs:
           # The macOS app is ad-hoc signed (no Apple Developer ID), so Gatekeeper
           # blocks it on first launch. The one-line install script handles the
           # xattr -cr quarantine strip automatically; manual DMG users must run it.
+          # Lead with direct links. GitHub renders the Assets list inside a
+          # collapsed <details>, which we cannot restyle or force open, so a
+          # release whose only download path is "the file below" hides its
+          # downloads behind a disclosure most people never click.
           releaseBody: |
+            ## Download
+
+            | Platform | File |
+            |---|---|
+            | **macOS** (Apple Silicon) | [PIE_${{ env.PIE_VERSION }}_aarch64.dmg](https://github.com/abhishek-data/personal-intent-engine/releases/download/${{ github.ref_name }}/PIE_${{ env.PIE_VERSION }}_aarch64.dmg) |
+            | **Windows** (installer) | [PIE_${{ env.PIE_VERSION }}_x64-setup.exe](https://github.com/abhishek-data/personal-intent-engine/releases/download/${{ github.ref_name }}/PIE_${{ env.PIE_VERSION }}_x64-setup.exe) |
+            | **Windows** (MSI) | [PIE_${{ env.PIE_VERSION }}_x64_en-US.msi](https://github.com/abhishek-data/personal-intent-engine/releases/download/${{ github.ref_name }}/PIE_${{ env.PIE_VERSION }}_x64_en-US.msi) |
+
             ## Install
 
             ### macOS (Apple Silicon) — one line
@@ -117,7 +135,7 @@ jobs:
 
             ### Manual DMG
 
-            Download the `.dmg` below, drag PIE to Applications, then run:
+            Download the `.dmg` above, drag PIE to Applications, then run:
 
             ```bash
             xattr -cr /Applications/PIE.app
@@ -127,7 +145,7 @@ jobs:
 
             ### Windows
 
-            Run the `.exe` installer below. If SmartScreen warns, click **More info → Run anyway**.
+            Run the `.exe` installer above. If SmartScreen warns, click **More info → Run anyway**.
 
             ---
 
